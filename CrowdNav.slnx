@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CrowdNav.Scenarios/CrowdNav.Scenarios.csproj" />
+    <Project Path="src/CrowdSim.Interactive/CrowdSim.Interactive.csproj" />
+    <Project Path="src/CrowdSim/CrowdSim.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CrowdNav.Tests/CrowdNav.Tests.csproj" />
+  </Folder>
+</Solution>

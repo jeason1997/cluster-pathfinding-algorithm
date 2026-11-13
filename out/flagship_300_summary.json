@@ -1,0 +1,1 @@
+{"scenario":"flagship","units":300,"seconds":30.316,"allArrived":true,"minSeparation":0.7200,"overlapTicks":0,"teleports":0,"finalMaxGoalDistance":11.353,"goalFootprintRadius":12.000,"maxPostArrivalMovement":0.00000,"planTotalMs":182.718,"planPeakMs":5.249,"steadyMeanMs":0.924,"steadyP95Ms":1.338,"stepMaxMs":10.391,"yields":30,"hardClamps":18,"accelP99":80.480}

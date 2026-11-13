@@ -1,0 +1,1406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RTS 实时集群寻路 · 2D/3D</title>
+<style>
+  :root{
+    --bg:#080d12; --panel:#111a22; --panel2:#0c1319; --line:#24313c;
+    --text:#e9f0f6; --muted:#8da0b2; --accent:#5cc8ff; --green:#3ddc84;
+    --amber:#ffb547; --red:#ff5c5c; --purple:#c492ff;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);overflow:hidden;
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif}
+  #app{display:flex;height:100%}
+  #stage{position:relative;flex:1;min-width:0;background:#05080b;overflow:hidden}
+  #view{display:block;width:100%;height:100%;cursor:crosshair;touch-action:none}
+  #view.dragging{cursor:grabbing}
+  #hud{width:372px;flex:0 0 372px;border-left:1px solid var(--line);overflow-y:auto;
+    background:linear-gradient(180deg,#121c25,#0b1218);display:flex;flex-direction:column}
+  .pad{padding:18px 20px}
+  h1{font-size:18px;margin:0 0 7px;line-height:1.35}
+  .sub{font-size:12px;line-height:1.65;color:var(--muted);margin:0}
+  .section{border-top:1px solid var(--line);padding:14px 20px}
+  .section h2{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+    margin:0 0 10px;font-weight:600}
+  select,input[type=number]{background:#080f15;color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:7px 9px;font-size:12.5px;outline:none}
+  input[type=number]{width:76px;text-align:center;font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;accent-color:var(--accent);margin:6px 0 2px}
+  .row{display:flex;gap:8px;align-items:center;justify-content:space-between}
+  .btn{background:#17232d;border:1px solid #2a3b49;color:var(--text);border-radius:8px;
+    padding:8px 11px;font-size:12px;cursor:pointer;white-space:nowrap}
+  .btn:hover{background:#223444}
+  .btn.primary{background:#143b54;border-color:#2d6b8f;color:#dff5ff}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .time{font-size:23px;font-weight:600;font-variant-numeric:tabular-nums}
+  .time small{font-size:11.5px;color:var(--muted);font-weight:400}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .stat{background:var(--panel2);border:1px solid #1c2934;border-radius:9px;padding:8px 10px;min-width:0}
+  .stat .k{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stat .v{font-size:16px;margin-top:2px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .stat .v small{font-size:10px;color:var(--muted)}
+  .good{color:var(--green)} .bad{color:var(--red)} .warn{color:var(--amber)} .accent{color:var(--accent)}
+  .legend{display:flex;flex-wrap:wrap;gap:9px 13px;font-size:11px;color:var(--muted);margin-top:11px}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+  .note{font-size:11px;line-height:1.7;color:#8296a8;background:#0a1117;border:1px solid #1c2934;
+    border-radius:9px;padding:10px 11px}
+  .note b{color:#b9cbd9;font-weight:600}
+  .footer{padding:12px 20px 18px;color:#5d7183;font-size:10.5px;line-height:1.6}
+  .overlay{position:absolute;left:14px;top:14px;display:flex;gap:7px;pointer-events:none;flex-wrap:wrap}
+  .pill{background:rgba(8,14,20,.82);border:1px solid rgba(66,90,108,.6);border-radius:999px;
+    padding:6px 10px;font-size:11px;color:#b9cbd9;backdrop-filter:blur(6px)}
+  .pill b{color:#fff;font-variant-numeric:tabular-nums}
+  .pill.follow{border-color:rgba(255,181,71,.65);color:#ffd28a}
+  .viewToggle{position:absolute;right:14px;top:14px;display:flex;z-index:6;pointer-events:auto;
+    background:rgba(8,14,20,.88);border:1px solid rgba(66,90,108,.75);border-radius:9px;padding:3px;
+    backdrop-filter:blur(6px)}
+  .viewToggle button{background:transparent;border:0;color:#93a8ba;border-radius:6px;padding:6px 11px;
+    font-size:11px;cursor:pointer;font-family:inherit}
+  .viewToggle button.on{background:#1b4057;color:#dff5ff;box-shadow:0 0 0 1px #2d6b8f inset}
+  .viewToggle button:hover{color:#e9f0f6}
+  #hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);font-size:12px;color:#d6e8f5;
+    background:rgba(8,14,20,.84);border:1px solid rgba(80,120,150,.6);border-radius:999px;
+    padding:7px 15px;pointer-events:none;white-space:nowrap;max-width:calc(100% - 30px);
+    overflow:hidden;text-overflow:ellipsis}
+  #toast{position:absolute;left:50%;top:68px;transform:translateX(-50%);max-width:560px;display:none;
+    background:rgba(15,35,48,.95);border:1px solid #2d6b8f;color:#dff5ff;padding:8px 14px;
+    border-radius:8px;font-size:12px;z-index:5}
+  #toast.error{background:rgba(55,20,22,.96);border-color:#8f3a3a;color:#ffd9d9}
+  #conn{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--amber);
+    margin-right:5px;vertical-align:1px}
+  #conn.on{background:var(--green);box-shadow:0 0 8px rgba(61,220,132,.6)}
+  .countBox{background:var(--panel2);border:1px solid #1c2934;border-radius:9px;padding:10px}
+  .countBox .row{margin-top:8px}
+  .mapMeta{font-size:10.5px;line-height:1.5;color:#6e8395;margin-top:7px;word-break:break-all}
+  .followRow{margin-top:8px;font-size:11px;color:var(--muted);display:flex;gap:8px;align-items:center;
+    justify-content:space-between;min-height:29px}
+  @media (max-width:900px){#hud{width:330px;flex-basis:330px}.overlay{max-width:calc(100% - 20px)}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="view"></canvas>
+    <div class="overlay">
+      <div class="pill"><span id="conn"></span><span id="connText">连接中</span></div>
+      <div class="pill" id="modePill">3D · 透视</div>
+      <div class="pill">单位 <b id="ovUnits">–</b></div>
+      <div class="pill">到达 <b id="ovArrived">–</b></div>
+      <div class="pill">最小间距 <b id="ovMin">–</b></div>
+      <div class="pill" id="ovState">待命</div>
+      <div class="pill follow" id="followPill" style="display:none">跟随 <b id="followName">–</b></div>
+    </div>
+    <div class="viewToggle" id="viewToggle">
+      <button type="button" data-view="2d">2D</button>
+      <button type="button" data-view="3d" class="on">3D</button>
+    </div>
+    <div id="hint">左键点地面：下达目的地 · 中键拖动平移 · 左键拖动旋转（3D）· 滚轮缩放 · 点击单位跟随</div>
+    <div id="toast"></div>
+  </div>
+
+  <aside id="hud">
+    <div class="pad">
+      <h1>RTS 实时集群寻路 · 2D/3D</h1>
+      <p class="sub">点击地图任意可达位置，整队实时规划、绕行、让路并到达。拖拽可以环绕观察地形和人群。</p>
+    </div>
+
+    <div class="section">
+      <h2>地图</h2>
+      <div class="row">
+        <select id="mapSelect" style="flex:1"></select>
+        <button class="btn" id="suggestGoalBtn" title="使用该地图的推荐目标点">建议目标</button>
+      </div>
+      <div class="mapMeta" id="mapMeta">加载中…</div>
+    </div>
+
+    <div class="section">
+      <h2>单位数量</h2>
+      <div class="countBox">
+        <div class="row">
+          <input type="range" id="countRange" min="10" max="1000" step="10" value="120" style="flex:1">
+          <input type="number" id="countNumber" min="10" max="1000" step="10" value="120">
+        </div>
+        <div class="row">
+          <span style="font-size:11px;color:var(--muted)">10–1000 个（默认 120）</span>
+          <button class="btn primary" id="applyCount">重新生成</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>单位大小与移动速度</h2>
+      <div class="countBox">
+        <div class="row">
+          <span style="font-size:11px;color:var(--muted)">大小</span>
+          <span id="sizeLabel" style="font-size:11px">×1.00 · 直径 0.70 m</span>
+        </div>
+        <input type="range" id="sizeRange" min="0.5" max="2" step="0.05" value="1">
+        <div class="row" style="margin-top:8px">
+          <span style="font-size:11px;color:var(--muted)">移动速度</span>
+          <span id="unitSpeedLabel" style="font-size:11px">3.1 m/s</span>
+        </div>
+        <input type="range" id="unitSpeedRange" min="1" max="6" step="0.1" value="3.1">
+        <div class="row" style="margin-top:8px">
+          <span style="font-size:10.5px;color:#6e8395">碰撞半径、间距、车位都会同步调整</span>
+          <button class="btn primary" id="applyUnits">应用参数</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="row">
+        <div class="time"><span id="tNow">0.0</span><small> s</small></div>
+        <div class="row" style="gap:6px">
+          <select id="speedSelect" title="仿真速度">
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+          </select>
+          <button class="btn" id="focusBtn">聚焦目标</button>
+          <button class="btn" id="fitBtn">全图</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <span style="font-size:11px;color:var(--muted)">左键点地面下达命令</span>
+        <span class="accent" id="goalText" style="font-size:11px">目标：未设置</span>
+      </div>
+      <div class="followRow">
+        <span id="followText">镜头：自由轨道</span>
+        <button class="btn" id="clearFollow" style="display:none">取消跟随</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="stats">
+        <div class="stat"><div class="k">到达 / 总数</div>
+          <div class="v"><span id="sArrived">0</span><small> / <span id="sTotal">0</span></small></div></div>
+        <div class="stat"><div class="k">当前最小间距</div>
+          <div class="v"><span id="sMin">–</span><small> m</small></div></div>
+        <div class="stat"><div class="k">主动让路</div><div class="v" id="sYields">0</div></div>
+        <div class="stat"><div class="k">服务端单帧</div>
+          <div class="v"><span id="sStep">–</span><small> ms</small></div></div>
+      </div>
+      <div class="legend">
+        <span><i style="background:#4ea8ff"></i>行进</span>
+        <span><i style="background:#3ddc84"></i>已到达</span>
+        <span><i style="background:#ffb547"></i>主动让路</span>
+        <span><i style="background:#ff5c5c"></i>异常</span>
+        <span><i style="background:#c492ff;border-radius:1px"></i>软车位</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>视角与操作</h2>
+      <div class="note">
+        <b>3D 透视</b>：左键拖拽旋转，<b>中键拖动</b>平移；<b>2D 俯视</b>：左键/中键拖动平移。<br>
+        <b>左键点地面</b>：下达目的地；<b>滚轮</b>：缩放；<b>点击单位</b>：镜头跟随，<b>Esc</b> 退出。<br><br>
+        右上角可切换 2D/3D，快捷键 <b>1/2</b>。相机围绕目标点做球面轨道运动；俯仰限制在地面以上。
+        目标点只显示一个小标记；单位会按周围可用空间排布，狭窄通道自动排成队列，不再画一个巨大的容量圆。
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>怎么测</h2>
+      <div class="note">
+        1. 拖动数量滑块，点<b>重新生成</b>；<br>
+        2. 点击地面，整队开始走；<br>
+        3. 拖拽旋转视角，看斜坡、岩体和队伍绕行；<br>
+        4. 点击任意单位，镜头会跟随它；按 Esc 或“取消跟随”回到自由轨道。<br>
+        单位只改自己的速度，不会被平移；到达后显示为绿色。
+      </div>
+    </div>
+
+    <div class="footer">
+      浏览器 → 本地 C# 仿真服务（WebSocket，60 Hz 仿真 / 30 Hz 状态）。核心与自动测试共用同一套<br>
+      <code style="color:#8fa9bb">CrowdSimulation</code> 代码。3D 渲染使用本地 Three.js。
+    </div>
+  </aside>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  const THREE = window.THREE;
+  const canvas = document.getElementById("view");
+  const stage = document.getElementById("stage");
+  const $ = id => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  if (!THREE) {
+    document.body.innerHTML = "<div style='padding:30px;color:#fff;font:16px sans-serif'>Three.js 未加载，检查 vendor/three.min.js。</div>";
+    return;
+  }
+
+  let ws = null, connected = false, world = null;
+  let state = null, prev = null, receivedAt = 0;
+  let goal = null, slots = [], goalRadius = 0;
+  let suggestedGoal = null;
+  let trails = [];
+  let pendingGoal = null;
+  let unitVisualScale = 1;
+  let toastTimer = 0;
+  let wantCount = Number(params.get("count") || 120);
+  if (!Number.isFinite(wantCount)) wantCount = 120;
+  wantCount = Math.max(10, Math.min(1000, Math.round(wantCount / 10) * 10));
+  document.getElementById("countRange").value = wantCount;
+  document.getElementById("countNumber").value = wantCount;
+  let autoDone = false;
+  let resetForQuery = false;
+  let viewMode = params.get("view") === "2d" ? "2d" : "3d";
+
+  const COLORS = [0x4ea8ff, 0x3ddc84, 0xff5c5c, 0xffb547];
+
+  // ---------- renderer / scene ----------
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+  } catch (e) {
+    document.body.innerHTML = "<div style='padding:30px;color:#fff;font:16px sans-serif'>这个浏览器无法创建 WebGL。请用 Chrome/Edge 打开，或检查硬件加速。</div>";
+    return;
+  }
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.88;
+  renderer.shadowMap.enabled = false;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a1118);
+  scene.fog = new THREE.Fog(0x0a1118, 85, 190);
+
+  const perspectiveCamera = new THREE.PerspectiveCamera(48, 1, 0.1, 400);
+  const orthoCamera = new THREE.OrthographicCamera(-32, 32, 32, -32, 0.1, 300);
+  orthoCamera.up.set(0, 0, -1);
+  let camera = viewMode === "2d" ? orthoCamera : perspectiveCamera;
+  let terrainMesh = null;
+  let rocks = null;
+  let worldBase = null;
+  let terrainGrid = null;
+  let contourLines = null;
+  let unitsMesh = null;
+  let unitShadows = null;
+  let selectedRing = null;
+  let goalGroup = null;
+  let slotMesh = null;
+  let pendingGroup = null;
+  let trailLine = null;
+  let terrainCache = null;
+  let heightMin = 0, heightMax = 1;
+
+  let camYaw = -2.1;
+  let camPitch = 0.72;
+  let camDistance = 62;
+  let camTarget = new THREE.Vector3(32, 0, 32);
+  let desiredTarget = new THREE.Vector3(32, 0, 32);
+  let selectedIndex = -1;
+  let followSelected = false;
+  let drag = null, dragged = false;
+  const dummyUnit = new THREE.Object3D();
+  const colorScratch = new THREE.Color();
+
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function fmt(v, d) { return (v === undefined || v === null || !Number.isFinite(v)) ? "–" : Number(v).toFixed(d); }
+  function span() { return world ? world.terrain.width * world.terrain.cell : 64; }
+
+  // ---------- height sampling ----------
+  function sampleHeight(map, x, z) {
+    const gx = x / map.cell - 0.5, gz = z / map.cell - 0.5;
+    const cx = clamp(gx, 0, map.width - 1), cz = clamp(gz, 0, map.height - 1);
+    const x0 = Math.floor(cx), z0 = Math.floor(cz);
+    const x1 = Math.min(x0 + 1, map.width - 1), z1 = Math.min(z0 + 1, map.height - 1);
+    const tx = cx - x0, tz = cz - z0;
+    const h00 = map.heights[z0 * map.width + x0], h10 = map.heights[z0 * map.width + x1];
+    const h01 = map.heights[z1 * map.width + x0], h11 = map.heights[z1 * map.width + x1];
+    const a = h00 + (h10 - h00) * tx, b = h01 + (h11 - h01) * tx;
+    return a + (b - a) * tz;
+  }
+
+  function heightAt(x, z) {
+    return world ? sampleHeight(world.terrain, x, z) : 0;
+  }
+
+  function terrainColor(t) {
+    const c = new THREE.Color();
+    if (t < 0.28) c.lerpColors(new THREE.Color(0x244a38), new THREE.Color(0x416a45), t / 0.28);
+    else if (t < 0.62) c.lerpColors(new THREE.Color(0x416a45), new THREE.Color(0x6f8251), (t - 0.28) / 0.34);
+    else if (t < 0.86) c.lerpColors(new THREE.Color(0x6f8251), new THREE.Color(0x96845f), (t - 0.62) / 0.24);
+    else c.lerpColors(new THREE.Color(0x96845f), new THREE.Color(0xb59f76), (t - 0.86) / 0.14);
+    return c;
+  }
+
+  // ---------- terrain ----------
+  function buildTerrain() {
+    if (!world) return;
+    if (terrainMesh) {
+      scene.remove(terrainMesh);
+      terrainMesh.geometry.dispose();
+      terrainMesh.material.dispose();
+      terrainMesh = null;
+    }
+    if (rocks) {
+      scene.remove(rocks);
+      rocks.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+      rocks = null;
+    }
+    if (worldBase) {
+      scene.remove(worldBase);
+      worldBase.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+      worldBase = null;
+    }
+    if (terrainGrid) {
+      scene.remove(terrainGrid);
+      terrainGrid.geometry.dispose();
+      terrainGrid.material.dispose();
+      terrainGrid = null;
+    }
+    if (contourLines) {
+      scene.remove(contourLines);
+      contourLines.geometry.dispose();
+      contourLines.material.dispose();
+      contourLines = null;
+    }
+
+    const map = world.terrain;
+    const nx = map.width, nz = map.height, cell = map.cell;
+    const originX = (map.origin && map.origin[0]) || 0;
+    const originZ = (map.origin && map.origin[1]) || 0;
+    const mask = Array.isArray(map.walkable) && map.walkable.length === nx * nz ? map.walkable : null;
+    const exact = map.mesh && Array.isArray(map.mesh.vertices) &&
+      Array.isArray(map.mesh.indices) && map.mesh.vertices.length >= 9;
+    let verts = [], cols = [], idx = [];
+    heightMin = Infinity; heightMax = -Infinity;
+
+    if (exact) {
+      // Use the authored FBX triangles for display. Rasterising to the 0.6 m
+      // navigation grid is only for AI/collision; it must not sculpt the visible
+      // mesh into stair-stepped edges.
+      verts = map.mesh.vertices.slice();
+      idx = map.mesh.indices.slice();
+      for (let i = 0; i < verts.length; i += 3) {
+        heightMin = Math.min(heightMin, verts[i + 1]);
+        heightMax = Math.max(heightMax, verts[i + 1]);
+      }
+    } else {
+      for (let z = 0; z < nz; z++) {
+        for (let x = 0; x < nx; x++) {
+          if (mask && !mask[z * nx + x]) continue;
+          const h = map.heights[z * nx + x];
+          heightMin = Math.min(heightMin, h); heightMax = Math.max(heightMax, h);
+        }
+      }
+      for (let iz = 0; iz <= nz; iz++) {
+        const z = originZ + iz * cell;
+        for (let ix = 0; ix <= nx; ix++) {
+          const x = originX + ix * cell;
+          const h = sampleHeight(map, x, z);
+          verts.push(x, h, z);
+        }
+      }
+      for (let iz = 0; iz < nz; iz++) {
+        for (let ix = 0; ix < nx; ix++) {
+          if (mask && !mask[iz * nx + ix]) continue;
+          const a = iz * (nx + 1) + ix;
+          const b = a + 1;
+          const c = a + (nx + 1);
+          const d = c + 1;
+          // upward-facing winding
+          idx.push(a, c, b, b, c, d);
+        }
+      }
+    }
+
+    if (!Number.isFinite(heightMin)) heightMin = 0;
+    if (!Number.isFinite(heightMax)) heightMax = 1;
+    const range = Math.max(0.001, heightMax - heightMin);
+    for (let i = 0; i < verts.length; i += 3) {
+      const c = terrainColor(clamp((verts[i + 1] - heightMin) / range, 0, 1));
+      cols.push(c.r, c.g, c.b);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.98, metalness: 0.0, flatShading: true,
+      side: exact ? THREE.DoubleSide : THREE.FrontSide
+    });
+    terrainMesh = new THREE.Mesh(geo, mat);
+    terrainMesh.receiveShadow = false;
+    scene.add(terrainMesh);
+
+    // A dark cliff/base under the height field removes the "floating carpet" look.
+    const sX = nx * cell, sZ = nz * cell;
+    worldBase = new THREE.Group();
+    const cliff = new THREE.Mesh(
+      new THREE.BoxGeometry(sX + 0.4, 8, sZ + 0.4),
+      new THREE.MeshStandardMaterial({ color: 0x121b1b, roughness: 1 })
+    );
+    cliff.position.set(originX + sX / 2, heightMin - 4.0, originZ + sZ / 2);
+    worldBase.add(cliff);
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(260, 260),
+      new THREE.MeshStandardMaterial({ color: 0x0a1117, roughness: 1 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set(originX + sX / 2, heightMin - 8.1, originZ + sZ / 2);
+    worldBase.add(ground);
+    scene.add(worldBase);
+
+    // Procedural map gets a grid/contour overlay. Imported meshes already carry
+    // their authored shape, so overlaying a synthetic 4 m grid would be misleading.
+    if (!mask && !exact) {
+      const gridPts = [];
+      const step = 4;
+      for (let x = 0; x <= sX + 0.001; x += step) {
+        for (let z = 0; z < sZ; z += step) {
+          gridPts.push(x, heightAt(x, z) + 0.025, z, x, heightAt(x, Math.min(sZ, z + step)) + 0.025, Math.min(sZ, z + step));
+        }
+      }
+      for (let z = 0; z <= sZ + 0.001; z += step) {
+        for (let x = 0; x < sX; x += step) {
+          gridPts.push(x, heightAt(x, z) + 0.025, z, Math.min(sX, x + step), heightAt(Math.min(sX, x + step), z) + 0.025, z);
+        }
+      }
+      terrainGrid = new THREE.LineSegments(
+        new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(gridPts, 3)),
+        new THREE.LineBasicMaterial({ color: 0x1c3328, transparent: true, opacity: 0.16 })
+      );
+      scene.add(terrainGrid);
+
+      const contourPts = [];
+      const levelStep = 1.5;
+      const lv0 = Math.ceil(heightMin / levelStep) * levelStep;
+      for (let lv = lv0; lv < heightMax; lv += levelStep) {
+        for (let iz = 0; iz < nz; iz++) {
+          const z0 = originZ + iz * cell, z1 = z0 + cell;
+          for (let ix = 0; ix < nx; ix++) {
+            const x0 = originX + ix * cell, x1 = x0 + cell;
+            const h00 = sampleHeight(map, x0, z0), h10 = sampleHeight(map, x1, z0);
+            const h11 = sampleHeight(map, x1, z1), h01 = sampleHeight(map, x0, z1);
+            const pts = [];
+            const edge = (ax, az, ah, bx, bz, bh) => {
+              if ((ah < lv) !== (bh < lv)) {
+                const t = (lv - ah) / (bh - ah);
+                pts.push([ax + (bx - ax) * t, az + (bz - az) * t]);
+              }
+            };
+            edge(x0, z0, h00, x1, z0, h10);
+            edge(x1, z0, h10, x1, z1, h11);
+            edge(x1, z1, h11, x0, z1, h01);
+            edge(x0, z1, h01, x0, z0, h00);
+            if (pts.length >= 2) {
+              contourPts.push(pts[0][0], lv + 0.035, pts[0][1], pts[1][0], lv + 0.035, pts[1][1]);
+              if (pts.length >= 4) {
+                contourPts.push(pts[2][0], lv + 0.035, pts[2][1], pts[3][0], lv + 0.035, pts[3][1]);
+              }
+            }
+          }
+        }
+      }
+      if (contourPts.length) {
+        contourLines = new THREE.LineSegments(
+          new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(contourPts, 3)),
+          new THREE.LineBasicMaterial({ color: 0x243b2a, transparent: true, opacity: 0.32 })
+        );
+        scene.add(contourLines);
+      }
+    }
+
+    // Rocks are drawn as irregular low-poly boulders; collision radii are unchanged.
+    rocks = new THREE.Group();
+    const rockMat = new THREE.MeshStandardMaterial({ color: 0x30393d, roughness: 0.92, flatShading: true });
+    for (const o of (world.obstacles || [])) {
+      const r = o[2];
+      const h = heightAt(o[0], o[1]);
+      const g = new THREE.IcosahedronGeometry(r, 1);
+      const m = new THREE.Mesh(g, rockMat);
+      m.position.set(o[0], h + r * 0.75, o[1]);
+      m.scale.set(1.0, 1.55, 1.0);
+      m.rotation.set(0.2, (o[0] * 0.7 + o[1] * 0.3), 0.1);
+      rocks.add(m);
+    }
+    scene.add(rocks);
+
+    // Lights are rebuilt with terrain because this demo has one scene.
+    scene.children.filter(o => o.isLight).forEach(o => scene.remove(o));
+    scene.add(new THREE.HemisphereLight(0xbcd8e8, 0x17251b, 0.82));
+    const sun = new THREE.DirectionalLight(0xffedc4, 1.85);
+    sun.position.set(28, 52, 8);
+    scene.add(sun);
+    const fill = new THREE.DirectionalLight(0x5da7e8, 0.38);
+    fill.position.set(-30, 18, -24);
+    scene.add(fill);
+
+    terrainCache = { min: heightMin, max: heightMax };
+  }
+
+  // ---------- units ----------
+  function buildUnits() {
+    if (unitsMesh) {
+      scene.remove(unitsMesh);
+      unitsMesh.geometry.dispose();
+      unitsMesh.material.dispose();
+      unitsMesh = null;
+    }
+    if (unitShadows) {
+      scene.remove(unitShadows);
+      unitShadows.geometry.dispose();
+      unitShadows.material.dispose();
+      unitShadows = null;
+    }
+    const geo = new THREE.CapsuleGeometry(0.32, 0.50, 4, 8);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.08 });
+    unitsMesh = new THREE.InstancedMesh(geo, mat, 1000);
+    unitsMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    unitsMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(1000 * 3), 3);
+    unitsMesh.count = 0;
+    unitsMesh.frustumCulled = false;
+    scene.add(unitsMesh);
+
+    unitShadows = new THREE.InstancedMesh(
+      new THREE.CircleGeometry(0.39, 12),
+      new THREE.MeshBasicMaterial({ color: 0x06100b, transparent: true, opacity: 0.28, depthWrite: false }),
+      1000
+    );
+    unitShadows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    unitShadows.count = 0;
+    unitShadows.frustumCulled = false;
+    scene.add(unitShadows);
+
+    if (selectedRing) {
+      scene.remove(selectedRing);
+      selectedRing.geometry.dispose();
+      selectedRing.material.dispose();
+    }
+    selectedRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.56, 0.045, 6, 28),
+      new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.95, depthWrite: false })
+    );
+    selectedRing.rotation.x = -Math.PI / 2;
+    selectedRing.visible = false;
+    scene.add(selectedRing);
+
+    if (trailLine) {
+      scene.remove(trailLine);
+      trailLine.geometry.dispose();
+      trailLine.material.dispose();
+    }
+    trailLine = new THREE.Line(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.55 })
+    );
+    trailLine.visible = false;
+    scene.add(trailLine);
+  }
+
+  function unitPosition(i, alpha) {
+    if (!state || !state.agents[i]) return null;
+    const a = state.agents[i];
+    let x = a[0], z = a[1];
+    if (prev && prev.agents && prev.agents[i] && alpha < 1) {
+      x = prev.agents[i][0] + (x - prev.agents[i][0]) * alpha;
+      z = prev.agents[i][1] + (z - prev.agents[i][1]) * alpha;
+    }
+    return { x, z, st: a[2], y: heightAt(x, z) };
+  }
+
+  function updateUnits() {
+    if (!unitsMesh || !state || !state.agents) return;
+    const alpha = prev ? clamp((performance.now() - receivedAt) / 34, 0, 1) : 1;
+    const n = Math.min(state.agents.length, 1000);
+    for (let i = 0; i < n; i++) {
+      const p = unitPosition(i, alpha);
+      if (!p) continue;
+      dummyUnit.position.set(p.x, p.y + 0.57 * unitVisualScale, p.z);
+      dummyUnit.rotation.set(0, 0, 0);
+      dummyUnit.scale.set(unitVisualScale, unitVisualScale, unitVisualScale);
+      dummyUnit.updateMatrix();
+      unitsMesh.setMatrixAt(i, dummyUnit.matrix);
+
+      dummyUnit.position.set(p.x, p.y + 0.035, p.z);
+      dummyUnit.rotation.set(-Math.PI / 2, 0, 0);
+      dummyUnit.scale.set(unitVisualScale, unitVisualScale, unitVisualScale);
+      dummyUnit.updateMatrix();
+      unitShadows.setMatrixAt(i, dummyUnit.matrix);
+
+      colorScratch.setHex(COLORS[p.st] === undefined ? COLORS[2] : COLORS[p.st]);
+      unitsMesh.setColorAt(i, colorScratch);
+    }
+    unitsMesh.count = n;
+    unitsMesh.instanceMatrix.needsUpdate = true;
+    if (unitsMesh.instanceColor) unitsMesh.instanceColor.needsUpdate = true;
+    unitShadows.count = n;
+    unitShadows.instanceMatrix.needsUpdate = true;
+
+    if (selectedIndex >= 0 && selectedIndex < n) {
+      const p = unitPosition(selectedIndex, alpha);
+      if (p) {
+        selectedRing.position.set(p.x, p.y + 0.08, p.z);
+        selectedRing.scale.setScalar(unitVisualScale);
+        selectedRing.visible = true;
+      }
+      updateTrail(selectedIndex, alpha);
+    } else {
+      selectedRing.visible = false;
+      trailLine.visible = false;
+    }
+  }
+
+  function updateTrail(i, alpha) {
+    if (!trailLine || !trails[i] || trails[i].length < 2) {
+      trailLine.visible = false;
+      return;
+    }
+    const pts = [];
+    for (const q of trails[i]) pts.push(new THREE.Vector3(q[0], heightAt(q[0], q[1]) + 0.10, q[1]));
+    const p = unitPosition(i, alpha);
+    if (p) pts.push(new THREE.Vector3(p.x, p.y + 0.10, p.z));
+    trailLine.geometry.dispose();
+    trailLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    trailLine.visible = pts.length > 1;
+  }
+
+  // ---------- goal visuals ----------
+  function disposeGroup(g) {
+    if (!g) return;
+    scene.remove(g);
+    g.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) {
+        if (Array.isArray(o.material)) o.material.forEach(m => m.dispose());
+        else o.material.dispose();
+      }
+    });
+  }
+
+  function buildGoal() {
+    disposeGroup(goalGroup);
+    goalGroup = new THREE.Group();
+    scene.add(goalGroup);
+    slotMesh = null;
+    if (!goal) return;
+
+    // Do not draw the full capacity envelope: for hundreds of units it can be
+    // tens of metres wide and visually suggests that units should stop halfway.
+    // The marker is a small "destination point" indicator; actual slots are the
+    // purple standing positions.
+    const R = Math.min(2.6, Math.max(1.0, (goalRadius || 1) * 0.28));
+    const seg = 72, rings = 5;
+    const pos = [], idx = [];
+    for (let ri = 0; ri <= rings; ri++) {
+      const r = R * (ri / rings);
+      for (let si = 0; si < seg; si++) {
+        const a = (si / seg) * Math.PI * 2;
+        const x = goal[0] + Math.cos(a) * r;
+        const z = goal[1] + Math.sin(a) * r;
+        pos.push(x, heightAt(x, z) + 0.07, z);
+      }
+    }
+    for (let ri = 0; ri < rings; ri++) {
+      for (let si = 0; si < seg; si++) {
+        const a = ri * seg + si;
+        const b = ri * seg + (si + 1) % seg;
+        const c = (ri + 1) * seg + si;
+        const d = (ri + 1) * seg + (si + 1) % seg;
+        idx.push(a, c, b, b, c, d);
+      }
+    }
+    const fillGeo = new THREE.BufferGeometry();
+    fillGeo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    fillGeo.setIndex(idx);
+    fillGeo.computeVertexNormals();
+    const fill = new THREE.Mesh(fillGeo, new THREE.MeshBasicMaterial({
+      color: 0x5cc8ff, transparent: true, opacity: 0.075,
+      side: THREE.DoubleSide, depthWrite: false
+    }));
+    goalGroup.add(fill);
+
+    // A terrain-following ribbon is much more visible than a 1 px WebGL line
+    // when the camera is low or the ring is far away.
+    const band = 0.10;
+    const rp = [], ri = [];
+    for (let i = 0; i < seg; i++) {
+      const a = (i / seg) * Math.PI * 2;
+      const ca = Math.cos(a), sa = Math.sin(a);
+      for (const rr of [R - band, R + band]) {
+        const x = goal[0] + ca * rr;
+        const z = goal[1] + sa * rr;
+        rp.push(x, heightAt(x, z) + 0.14, z);
+      }
+    }
+    for (let i = 0; i < seg; i++) {
+      const a = i * 2;
+      const b = a + 1;
+      const c = ((i + 1) % seg) * 2;
+      const d = c + 1;
+      ri.push(a, b, c, b, d, c);
+    }
+    const ringGeo = new THREE.BufferGeometry();
+    ringGeo.setAttribute("position", new THREE.Float32BufferAttribute(rp, 3));
+    ringGeo.setIndex(ri);
+    ringGeo.computeVertexNormals();
+    const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
+      color: 0x8fe3ff, transparent: true, opacity: 0.95,
+      side: THREE.DoubleSide, depthWrite: false
+    }));
+    goalGroup.add(ring);
+
+    const h = heightAt(goal[0], goal[1]);
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.08, 1.35, 8),
+      new THREE.MeshBasicMaterial({ color: 0xff7a8a })
+    );
+    pole.position.set(goal[0], h + 0.67, goal[1]);
+    goalGroup.add(pole);
+    const bulb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.27, 12, 8),
+      new THREE.MeshBasicMaterial({ color: 0xff5f6d })
+    );
+    bulb.position.set(goal[0], h + 1.38, goal[1]);
+    goalGroup.add(bulb);
+
+    if (slots && slots.length) {
+      const sgeo = new THREE.CylinderGeometry(0.075, 0.075, 0.055, 8);
+      const smat = new THREE.MeshBasicMaterial({ color: 0xc492ff, transparent: true, opacity: 0.55 });
+      slotMesh = new THREE.InstancedMesh(sgeo, smat, slots.length);
+      const dummy = new THREE.Object3D();
+      for (let i = 0; i < slots.length; i++) {
+        const x = slots[i][0], z = slots[i][1];
+        dummy.position.set(x, heightAt(x, z) + 0.035, z);
+        dummy.updateMatrix();
+        slotMesh.setMatrixAt(i, dummy.matrix);
+      }
+      slotMesh.count = slots.length;
+      slotMesh.instanceMatrix.needsUpdate = true;
+      goalGroup.add(slotMesh);
+    }
+  }
+
+  function buildPending() {
+    if (pendingGroup) disposeGroup(pendingGroup);
+    pendingGroup = null;
+    if (!pendingGoal) return;
+    pendingGroup = new THREE.Group();
+    const x = pendingGoal[0], z = pendingGoal[1], h = heightAt(x, z);
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.34, 0.44, 28),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(x, h + 0.07, z);
+    pendingGroup.add(ring);
+    const dot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.12, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffffff })
+    );
+    dot.position.set(x, h + 0.15, z);
+    pendingGroup.add(dot);
+    scene.add(pendingGroup);
+  }
+
+  // ---------- camera ----------
+  function setFreeTarget(x, z) {
+    desiredTarget.set(x, heightAt(x, z) + 0.5, z);
+  }
+
+  function idleCameraLabel() {
+    return viewMode === "2d" ? "镜头：2D 俯视" : "镜头：自由轨道";
+  }
+
+  function clearFollow() {
+    followSelected = false;
+    selectedIndex = -1;
+    if (selectedRing) selectedRing.visible = false;
+    if (trailLine) trailLine.visible = false;
+    $("followPill").style.display = "none";
+    $("followText").textContent = idleCameraLabel();
+    $("clearFollow").style.display = "none";
+  }
+
+  function selectUnit(i) {
+    if (!state || i < 0 || i >= state.agents.length) return;
+    selectedIndex = i;
+    followSelected = true;
+    const p = unitPosition(i, 1);
+    if (p) {
+      desiredTarget.set(p.x, p.y + 0.55, p.z);
+      camDistance = clamp(camDistance, 10, 18);
+    }
+    $("followPill").style.display = "";
+    $("followName").textContent = "#" + i;
+    $("followText").textContent = "镜头：跟随单位 #" + i;
+    $("clearFollow").style.display = "";
+    toast("镜头跟随单位 #" + i + "；拖拽可环绕，Esc 退出。");
+  }
+
+  function mapFocusPoint() {
+    const s = span();
+    const map = world ? world.terrain : null;
+    const mask = map && Array.isArray(map.walkable) &&
+      map.walkable.length === map.width * map.height ? map.walkable : null;
+    if (!map || !mask) {
+      return { x: s / 2, z: s / 2, y: heightAt(s / 2, s / 2) };
+    }
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    let sumH = 0, count = 0;
+    for (let z = 0; z < map.height; z++) {
+      for (let x = 0; x < map.width; x++) {
+        if (!mask[z * map.width + x]) continue;
+        const wx = (map.origin ? map.origin[0] : 0) + (x + 0.5) * map.cell;
+        const wz = (map.origin ? map.origin[1] : 0) + (z + 0.5) * map.cell;
+        minX = Math.min(minX, wx); maxX = Math.max(maxX, wx);
+        minZ = Math.min(minZ, wz); maxZ = Math.max(maxZ, wz);
+        sumH += map.heights[z * map.width + x];
+        count++;
+      }
+    }
+    if (!count) return { x: s / 2, z: s / 2, y: heightAt(s / 2, s / 2) };
+    return {
+      x: (minX + maxX) / 2,
+      z: (minZ + maxZ) / 2,
+      y: sumH / count
+    };
+  }
+
+  function fitMap() {
+    clearFollow();
+    const s = span();
+    const f = mapFocusPoint();
+    camTarget.set(f.x, f.y + 0.4, f.z);
+    desiredTarget.copy(camTarget);
+    camDistance = s * 1.12;
+    camPitch = 0.72;
+    camYaw = -2.1;
+    // The imported map is much larger than the procedural map; a fixed fog range
+    // would put the whole map past the far plane and render the view black.
+    if (scene.fog) {
+      scene.fog.near = Math.max(45, s * 0.65);
+      scene.fog.far = Math.max(190, s * 3.0);
+    }
+    camera.far = Math.max(400, s * 4);
+    camera.updateProjectionMatrix();
+  }
+
+  function focusGoal() {
+    clearFollow();
+    if (!goal) { fitMap(); return; }
+    camDistance = viewMode === "2d"
+      ? Math.max(10, (goalRadius || 7) * 4.0)
+      : Math.max(12, (goalRadius || 7) * 3.4);
+    camPitch = 0.63;
+    desiredTarget.set(goal[0], heightAt(goal[0], goal[1]) + 0.5, goal[1]);
+    camTarget.copy(desiredTarget);
+  }
+
+  function setViewMode(mode, refit = true) {
+    if (mode !== "2d" && mode !== "3d") return;
+    viewMode = mode;
+    camera = mode === "2d" ? orthoCamera : perspectiveCamera;
+    document.querySelectorAll("#viewToggle button").forEach(b => {
+      b.classList.toggle("on", b.dataset.view === mode);
+    });
+    $("modePill").textContent = mode === "2d" ? "2D · 俯视" : "3D · 透视";
+    $("hint").textContent = mode === "2d"
+      ? "左键点地面：下达目的地 · 中键/左键拖动平移 · 滚轮缩放 · 点击单位跟随"
+      : "左键点地面：下达目的地 · 中键拖动平移 · 左键拖动旋转 · 滚轮缩放 · 点击单位跟随";
+    if (!followSelected) $("followText").textContent = idleCameraLabel();
+    if (refit) fitMap();
+  }
+
+  function updateCamera(dt) {
+    if (followSelected && state && selectedIndex >= 0 && selectedIndex < state.agents.length) {
+      const alpha = prev ? clamp((performance.now() - receivedAt) / 34, 0, 1) : 1;
+      const p = unitPosition(selectedIndex, alpha);
+      if (p) desiredTarget.set(p.x, p.y + 0.55, p.z);
+    }
+    camTarget.lerp(desiredTarget, followSelected ? 0.22 : 0.16);
+    camTarget.y = heightAt(camTarget.x, camTarget.z) + 0.45;
+
+    if (viewMode === "2d") {
+      camera = orthoCamera;
+      const aspect = Math.max(0.2, canvas.clientWidth / Math.max(1, canvas.clientHeight));
+      const halfH = Math.max(3, camDistance * 0.55);
+      orthoCamera.left = -halfH * aspect;
+      orthoCamera.right = halfH * aspect;
+      orthoCamera.top = halfH;
+      orthoCamera.bottom = -halfH;
+      orthoCamera.position.set(camTarget.x, 80, camTarget.z);
+      orthoCamera.lookAt(camTarget.x, 0, camTarget.z);
+      orthoCamera.updateProjectionMatrix();
+      return;
+    }
+
+    camera = perspectiveCamera;
+    const cp = Math.cos(camPitch), sp = Math.sin(camPitch);
+    camera.position.set(
+      camTarget.x + Math.cos(camYaw) * cp * camDistance,
+      camTarget.y + sp * camDistance,
+      camTarget.z + Math.sin(camYaw) * cp * camDistance
+    );
+    // Don't let a low orbit camera clip through the height field.
+    const floor = heightAt(camera.position.x, camera.position.z) + 1.0;
+    if (camera.position.y < floor) camera.position.y = floor;
+    camera.lookAt(camTarget);
+  }
+
+  function panTarget(dx, dy) {
+    if (viewMode === "2d") {
+      // Grabbing the map: the terrain follows the pointer.
+      const k = (camDistance * 1.1) / Math.max(1, canvas.clientHeight);
+      desiredTarget.x -= dx * k;
+      desiredTarget.z -= dy * k;
+    } else {
+      const k = camDistance / Math.max(420, canvas.clientHeight) * 1.5;
+      const fx = -Math.cos(camYaw), fz = -Math.sin(camYaw);
+      const rx = -Math.sin(camYaw), rz = Math.cos(camYaw);
+      // Same "grab the world" convention as 2D: the scene moves with the pointer.
+      desiredTarget.x += rx * dx * k + fx * dy * k;
+      desiredTarget.z += rz * dx * k + fz * dy * k;
+    }
+    const s = span();
+    desiredTarget.x = clamp(desiredTarget.x, 0, s);
+    desiredTarget.z = clamp(desiredTarget.z, 0, s);
+    if (followSelected) clearFollow();
+  }
+
+  // ---------- input / picking ----------
+  function ndc(e) {
+    const r = canvas.getBoundingClientRect();
+    return new THREE.Vector2(
+      ((e.clientX - r.left) / r.width) * 2 - 1,
+      -((e.clientY - r.top) / r.height) * 2 + 1
+    );
+  }
+
+  function projectWorld(x, z, lift = 0.55) {
+    const v = new THREE.Vector3(x, heightAt(x, z) + lift, z).project(camera);
+    const r = canvas.getBoundingClientRect();
+    return {
+      x: r.left + (v.x * 0.5 + 0.5) * r.width,
+      y: r.top + (-v.y * 0.5 + 0.5) * r.height,
+      visible: v.z > -1 && v.z < 1
+    };
+  }
+
+  function pickAt(e) {
+    if (!state || !terrainMesh) return;
+    const r = canvas.getBoundingClientRect();
+    const mx = e.clientX, my = e.clientY;
+    let best = -1, bestD = 18 * 18;
+    for (let i = 0; i < state.agents.length; i++) {
+      const p = projectWorld(state.agents[i][0], state.agents[i][1]);
+      const d = (p.x - mx) * (p.x - mx) + (p.y - my) * (p.y - my);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    if (best >= 0) {
+      selectUnit(best);
+      return;
+    }
+
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc(e), camera);
+    const hit = ray.intersectObject(terrainMesh, false)[0];
+    if (!hit) return;
+    pendingGoal = [hit.point.x, hit.point.z];
+    buildPending();
+    send({ type: "goal", x: hit.point.x, z: hit.point.z });
+  }
+
+  canvas.addEventListener("pointerdown", e => {
+    // Right button is intentionally inert; middle drag is the pan gesture.
+    if (e.button === 2) {
+      e.preventDefault();
+      drag = null;
+      return;
+    }
+    if (e.button === 1 || e.shiftKey || viewMode === "2d") {
+      drag = { x: e.clientX, y: e.clientY, mode: "pan" };
+      e.preventDefault();
+    } else {
+      drag = { x: e.clientX, y: e.clientY, mode: "orbit" };
+    }
+    dragged = false;
+    try { canvas.setPointerCapture(e.pointerId); } catch (x) {}
+  });
+
+  // Stop the browser's middle-button autoscroll before it starts.
+  canvas.addEventListener("mousedown", e => {
+    if (e.button === 1) e.preventDefault();
+  });
+  canvas.addEventListener("auxclick", e => {
+    if (e.button === 1) e.preventDefault();
+  });
+
+  canvas.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!dragged && Math.hypot(dx, dy) > 4) {
+      dragged = true;
+      canvas.classList.add("dragging");
+    }
+    if (!dragged) return;
+    if (drag.mode === "orbit") {
+      // Match the usual orbit-camera feel: dragging right rotates the view right.
+      camYaw += dx * 0.0055;
+      camPitch = clamp(camPitch + dy * 0.0045, 0.16, 1.35);
+    } else {
+      panTarget(dx, dy);
+    }
+    drag.x = e.clientX; drag.y = e.clientY;
+  });
+
+  canvas.addEventListener("pointerup", e => {
+    if (drag && !dragged && e.button === 0) pickAt(e);
+    drag = null;
+    dragged = false;
+    canvas.classList.remove("dragging");
+    try { canvas.releasePointerCapture(e.pointerId); } catch (x) {}
+  });
+
+  canvas.addEventListener("pointercancel", () => { drag = null; dragged = false; canvas.classList.remove("dragging"); });
+  canvas.addEventListener("contextmenu", e => e.preventDefault());
+  canvas.addEventListener("wheel", e => {
+    e.preventDefault();
+    camDistance = clamp(camDistance * Math.exp(e.deltaY * 0.0011), 6, 170);
+  }, { passive: false });
+  canvas.addEventListener("dblclick", fitMap);
+
+  // ---------- websocket ----------
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(proto + "://" + location.host + "/ws");
+    setConn(false, "连接中");
+    ws.onopen = () => {
+      connected = true;
+      resetForQuery = false;
+      autoDone = false;
+      setConn(true, "已连接");
+    };
+    ws.onclose = () => {
+      connected = false;
+      setConn(false, "断开，重连中…");
+      ws = null;
+      setTimeout(connect, 1500);
+    };
+    ws.onerror = () => { setConn(false, "连接失败"); };
+    ws.onmessage = ev => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      handleMessage(msg);
+    };
+  }
+
+  function send(obj) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      toast("还没连上仿真服务", true);
+      return false;
+    }
+    ws.send(JSON.stringify(obj));
+    return true;
+  }
+
+  function setConn(on, text) {
+    $("conn").className = on ? "on" : "";
+    $("connText").textContent = text;
+    $("applyCount").disabled = !on;
+    $("speedSelect").disabled = !on;
+    $("mapSelect").disabled = !on;
+    $("suggestGoalBtn").disabled = !on;
+    $("applyUnits").disabled = !on;
+  }
+
+  function toast(text, isError) {
+    const t = $("toast");
+    t.textContent = text;
+    t.className = isError ? "error" : "";
+    t.style.display = "block";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.style.display = "none"; }, 3200);
+  }
+
+  function handleMessage(msg) {
+    switch (msg.type) {
+      case "world":
+        world = msg;
+        suggestedGoal = msg.suggestedGoal || null;
+        unitVisualScale = msg.unitScale || 1;
+        populateMaps(msg);
+        updateUnitInputs(msg);
+        $("ovUnits").textContent = msg.count;
+        buildTerrain();
+        buildUnits();
+        fitMap();
+        break;
+      case "init":
+      case "reset":
+        applyState(msg, msg.type === "reset");
+        if (msg.type === "init" && wantCount !== msg.count && !resetForQuery) {
+          resetForQuery = true;
+          send({ type: "reset", count: wantCount });
+        }
+        if (msg.type === "reset") {
+          clearFollow();
+          goal = null; slots = []; goalRadius = 0; pendingGoal = null;
+          buildGoal();
+          buildPending();
+        }
+        maybeAuto();
+        break;
+      case "state":
+        applyState(msg, false);
+        break;
+      case "map":
+        if (msg.ok === false) {
+          if (world && world.mapId) $("mapSelect").value = world.mapId;
+          toast(msg.error || "地图加载失败", true);
+        }
+        break;
+      case "units":
+        if (msg.ok === false) {
+          if (world) updateUnitInputs(world);
+          toast(msg.error || "单位参数应用失败", true);
+        }
+        break;
+      case "goal":
+        if (msg.ok) {
+          goal = msg.goal;
+          goalRadius = msg.goalRadius;
+          slots = msg.slots || [];
+          pendingGoal = null;
+          buildPending();
+          buildGoal();
+          $("goalText").textContent = "目标：" + goal[0].toFixed(1) + ", " + goal[1].toFixed(1);
+          toast("已下达目标，单位开始规划。");
+        } else {
+          pendingGoal = null;
+          buildPending();
+          toast(msg.error || "目标不可达", true);
+        }
+        break;
+      case "toast":
+        toast(msg.text || "错误", msg.kind === "error");
+        break;
+      case "speed":
+        $("speedSelect").value = String(msg.value);
+        break;
+    }
+  }
+
+  function applyState(s, reset) {
+    if (reset || !state) {
+      prev = null;
+      state = s;
+      trails = [];
+      goal = null;
+      slots = [];
+      goalRadius = 0;
+      pendingGoal = null;
+      $("goalText").textContent = "目标：未设置";
+    } else {
+      prev = state;
+      state = s;
+      if (!s.hasGoal) {
+        const had = !!goal;
+        goal = null;
+        slots = [];
+        goalRadius = 0;
+        if (had) buildGoal();
+      } else if (s.goal) {
+        const changed = !goal || goal[0] !== s.goal[0] || goal[1] !== s.goal[1] ||
+          goalRadius !== (s.goalRadius || 0);
+        goal = s.goal;
+        goalRadius = s.goalRadius || 0;
+        if (changed && !slots.length) buildGoal();
+      }
+      if (s.agents.length !== (prev ? prev.agents.length : s.agents.length)) {
+        prev = null;
+        trails = [];
+      }
+    }
+    receivedAt = performance.now();
+    if (!trails.length && s.agents) trails = s.agents.map(() => []);
+    if (trails.length !== s.agents.length) trails = s.agents.map(() => []);
+    for (let i = 0; i < s.agents.length; i++) {
+      const a = s.agents[i];
+      trails[i].push([a[0], a[1]]);
+      if (trails[i].length > 24) trails[i].shift();
+    }
+
+    $("tNow").textContent = s.t.toFixed(1);
+    $("ovUnits").textContent = s.count;
+    $("ovArrived").textContent = s.arrived;
+    $("ovMin").textContent = fmt(s.minSep, 3);
+    $("sArrived").textContent = s.arrived;
+    $("sTotal").textContent = s.count;
+    $("sMin").textContent = fmt(s.minSep, 3);
+    $("sMin").className = s.minSep > 0 && s.minSep < 0.718 ? "bad" : "good";
+    $("sYields").textContent = s.yields;
+    $("sStep").textContent = fmt(s.stepMs, 2);
+    $("ovState").textContent = s.finalized ? "目标区域已压实" :
+      (s.hasGoal ? (s.arrived === s.count ? "到达" : "寻路中") : "待命 · 点击地面");
+
+    if (reset) {
+      $("countRange").value = s.count;
+      $("countNumber").value = s.count;
+    }
+    if (selectedIndex >= s.agents.length) clearFollow();
+    maybeAuto();
+  }
+
+  function maybeAuto() {
+    if (autoDone || !connected || !state || params.get("auto") !== "1") return;
+    if (wantCount !== state.count) return;
+    autoDone = true;
+    const gx = Number(params.get("gx") || 49);
+    const gz = Number(params.get("gz") || 48);
+    setTimeout(() => {
+      pendingGoal = [gx, gz];
+      buildPending();
+      send({ type: "goal", x: gx, z: gz });
+    }, 350);
+  }
+
+  // ---------- misc UI ----------
+  function populateMaps(msg) {
+    const sel = $("mapSelect");
+    const maps = msg.maps || [];
+    sel.innerHTML = "";
+    for (const m of maps) {
+      const o = document.createElement("option");
+      o.value = m.id;
+      o.textContent = m.name || m.id;
+      sel.appendChild(o);
+    }
+    if (msg.mapId) sel.value = msg.mapId;
+    const current = maps.find(m => m.id === msg.mapId);
+    const src = (current && current.source) || msg.source || "本地数据";
+    $("mapMeta").textContent = (msg.mapName || "地图") + " · " + src;
+  }
+
+  function switchMap(id) {
+    if (!connected) return;
+    const count = state ? state.count : Number($("countNumber").value) || 120;
+    resetForQuery = false;
+    autoDone = false;
+    if (send({ type: "map", id, count })) {
+      $("mapMeta").textContent = "正在加载地图…";
+      toast("正在切换到 " + (id === "flagship" ? "默认地图" : id) + "…");
+    }
+  }
+
+  function updateUnitInputs(msg) {
+    const scale = Number(msg.unitScale) || 1;
+    const speed = Number(msg.maxSpeed) || 3.1;
+    $("sizeRange").value = String(scale);
+    $("unitSpeedRange").value = String(speed);
+    updateUnitLabels();
+  }
+
+  function updateUnitLabels() {
+    const scale = Number($("sizeRange").value) || 1;
+    const speed = Number($("unitSpeedRange").value) || 3.1;
+    $("sizeLabel").textContent = "×" + scale.toFixed(2) +
+      " · 直径 " + (0.70 * scale).toFixed(2) + " m";
+    $("unitSpeedLabel").textContent = speed.toFixed(1) + " m/s";
+  }
+
+  $("sizeRange").addEventListener("input", updateUnitLabels);
+  $("unitSpeedRange").addEventListener("input", updateUnitLabels);
+  $("applyUnits").addEventListener("click", () => {
+    if (!connected) return;
+    const count = state ? state.count : Number($("countNumber").value) || 120;
+    const size = Number($("sizeRange").value) || 1;
+    const speed = Number($("unitSpeedRange").value) || 3.1;
+    if (send({ type: "units", count, size, speed })) {
+      toast("正在应用：大小 ×" + size.toFixed(2) + "，移动速度 " + speed.toFixed(1) + " m/s…");
+    }
+  });
+
+  $("mapSelect").addEventListener("change", e => switchMap(e.target.value));
+  $("suggestGoalBtn").addEventListener("click", () => {
+    if (!suggestedGoal) { toast("这张地图没有推荐目标", true); return; }
+    pendingGoal = [suggestedGoal[0], suggestedGoal[1]];
+    buildPending();
+    send({ type: "goal", x: suggestedGoal[0], z: suggestedGoal[1] });
+  });
+
+  $("countRange").addEventListener("input", e => { $("countNumber").value = e.target.value; });
+  $("countNumber").addEventListener("input", e => {
+    let v = Number(e.target.value);
+    if (!Number.isFinite(v)) return;
+    v = clamp(Math.round(v / 10) * 10, 10, 1000);
+    $("countRange").value = v;
+  });
+  function applyCount() {
+    let v = Number($("countNumber").value);
+    if (!Number.isFinite(v)) v = 120;
+    v = clamp(Math.round(v / 10) * 10, 10, 1000);
+    $("countNumber").value = v;
+    $("countRange").value = v;
+    wantCount = v;
+    resetForQuery = false;
+    autoDone = false;
+    if (send({ type: "reset", count: v })) toast("正在生成 " + v + " 个单位…");
+  }
+  $("applyCount").addEventListener("click", applyCount);
+  $("countNumber").addEventListener("keydown", e => { if (e.key === "Enter") applyCount(); });
+  $("speedSelect").addEventListener("change", e => send({ type: "speed", value: Number(e.target.value) }));
+  $("focusBtn").addEventListener("click", focusGoal);
+  $("fitBtn").addEventListener("click", fitMap);
+  $("clearFollow").addEventListener("click", clearFollow);
+  document.querySelectorAll("#viewToggle button").forEach(b => {
+    b.addEventListener("click", () => setViewMode(b.dataset.view));
+  });
+  window.addEventListener("keydown", e => {
+    if (e.key === "Escape") clearFollow();
+    if (e.key === "f" || e.key === "F") focusGoal();
+    if (e.key === "1") setViewMode("2d");
+    if (e.key === "2") setViewMode("3d");
+  });
+
+  function resize() {
+    const w = stage.clientWidth, h = stage.clientHeight;
+    renderer.setSize(w, h, false);
+    perspectiveCamera.aspect = w / Math.max(1, h);
+    perspectiveCamera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", resize);
+
+  // automation hook used by tools/cdp_test.mjs
+  window.__demo = {
+    screenForWorld(x, z) { return projectWorld(x, z, 0.06); },
+    screenForUnit(i) {
+      if (!state || i < 0 || i >= state.agents.length) return null;
+      return projectWorld(state.agents[i][0], state.agents[i][1], 0.55);
+    },
+    selectUnit(i) { selectUnit(i); return true; },
+    getCamera() { return { yaw: camYaw, pitch: camPitch, distance: camDistance }; },
+    getViewMode() { return viewMode; },
+    getFollow() { return { selected: selectedIndex, following: followSelected }; },
+    getGoalText() { return $("goalText").textContent; }
+  };
+
+  setViewMode(viewMode, false);
+  connect();
+  resize();
+  buildUnits();
+  fitMap();
+
+  let last = performance.now();
+  function animate(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    updateCamera(dt);
+    updateUnits();
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>

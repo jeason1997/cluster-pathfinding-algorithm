@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>集群寻路 · 3D 地形落点仿真</title>
+<style>
+  :root{
+    --bg:#080d12; --panel:#111a22; --panel2:#0c1319; --line:#24313c;
+    --text:#e9f0f6; --muted:#8da0b2; --accent:#5cc8ff; --green:#3ddc84;
+    --amber:#ffb547; --red:#ff5c5c; --purple:#c492ff;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);overflow:hidden;
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif}
+  #app{display:flex;height:100%}
+  #stage{position:relative;flex:1;min-width:0;background:#05080b}
+  #view{display:block;width:100%;height:100%;cursor:grab;touch-action:none}
+  #view.dragging{cursor:grabbing}
+  #hud{width:372px;flex:0 0 372px;border-left:1px solid var(--line);overflow-y:auto;
+    background:linear-gradient(180deg,#121c25,#0b1218);display:flex;flex-direction:column}
+  .pad{padding:18px 20px}
+  h1{font-size:18px;margin:0 0 7px;line-height:1.35}
+  .sub{font-size:12px;line-height:1.65;color:var(--muted);margin:0}
+  .section{border-top:1px solid var(--line);padding:14px 20px}
+  .section h2{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+    margin:0 0 10px;font-weight:600}
+  select{background:#080f15;color:var(--text);border:1px solid var(--line);border-radius:8px;
+    padding:8px 9px;font-size:12.5px;outline:none}
+  .row{display:flex;gap:8px;align-items:center;justify-content:space-between}
+  .btn{background:#17232d;border:1px solid #2a3b49;color:var(--text);border-radius:8px;
+    padding:8px 11px;font-size:12px;cursor:pointer;white-space:nowrap}
+  .btn:hover{background:#223444}
+  .btn.primary{background:#143b54;border-color:#2d6b8f;color:#dff5ff}
+  .time{font-size:23px;font-weight:600;font-variant-numeric:tabular-nums}
+  .time small{font-size:11.5px;color:var(--muted);font-weight:400}
+  input[type=range]{width:100%;accent-color:var(--accent);margin:9px 0 3px}
+  .checks{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+  .check{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted);cursor:pointer}
+  .check input{accent-color:var(--accent)}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .stat{background:var(--panel2);border:1px solid #1c2934;border-radius:9px;padding:8px 10px;min-width:0}
+  .stat .k{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stat .v{font-size:16px;margin-top:2px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .stat .v small{font-size:10px;color:var(--muted)}
+  .good{color:var(--green)} .bad{color:var(--red)} .warn{color:var(--amber)} .accent{color:var(--accent)}
+  .legend{display:flex;flex-wrap:wrap;gap:9px 13px;font-size:11px;color:var(--muted);margin-top:11px}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+  .note{font-size:11px;line-height:1.7;color:#8296a8;background:#0a1117;border:1px solid #1c2934;
+    border-radius:9px;padding:10px 11px}
+  .note b{color:#b9cbd9;font-weight:600}
+  table.metrics{width:100%;border-collapse:collapse;font-size:11.5px}
+  table.metrics td{padding:5px 0;border-bottom:1px solid #1a252f;color:#b6c5d2}
+  table.metrics td:last-child{text-align:right;font-variant-numeric:tabular-nums;color:#eaf2f8}
+  table.metrics tr:last-child td{border-bottom:0}
+  .footer{padding:12px 20px 18px;color:#5d7183;font-size:10.5px;line-height:1.6}
+  .overlay{position:absolute;left:14px;top:14px;display:flex;gap:7px;pointer-events:none;flex-wrap:wrap}
+  .pill{background:rgba(8,14,20,.8);border:1px solid rgba(66,90,108,.6);border-radius:999px;
+    padding:6px 10px;font-size:11px;color:#b9cbd9;backdrop-filter:blur(6px)}
+  .pill b{color:#fff;font-variant-numeric:tabular-nums}
+  #hint{position:absolute;right:12px;bottom:10px;font-size:10.5px;color:#607384;
+    background:rgba(7,12,17,.72);border:1px solid #1d2a34;border-radius:6px;padding:5px 8px}
+  @media (max-width:900px){#hud{width:330px;flex-basis:330px}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="view"></canvas>
+    <div class="overlay">
+      <div class="pill">单位 <b id="ovUnits">0</b></div>
+      <div class="pill">到达 <b id="ovArrived">0</b></div>
+      <div class="pill">最小间距 <b id="ovMin">–</b></div>
+      <div class="pill" id="ovFinal" style="display:none;color:#9ef0bd">目标区域已压实</div>
+    </div>
+    <div id="hint">滚轮缩放 · 拖动平移 · 双击适应全图</div>
+  </div>
+
+  <aside id="hud">
+    <div class="pad">
+      <h1 id="title">集群寻路</h1>
+      <p class="sub" id="desc"></p>
+    </div>
+
+    <div class="section">
+      <h2>场景</h2>
+      <div class="row">
+        <select id="sceneSelect" style="flex:1"></select>
+        <button class="btn" id="focusBtn">聚焦目标</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="row">
+        <div class="time"><span id="tNow">0.0</span><small> / <span id="tEnd">0.0</span> s</small></div>
+        <div class="row" style="gap:6px">
+          <button class="btn primary" id="playBtn">暂停</button>
+          <button class="btn" id="endBtn">跳到结束</button>
+        </div>
+      </div>
+      <input type="range" id="timeline" min="0" max="10" step="0.01" value="0">
+      <div class="row">
+        <div class="row" style="gap:6px">
+          <span style="font-size:11px;color:var(--muted)">速度</span>
+          <select id="speedSelect" style="padding:5px 7px">
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+          </select>
+        </div>
+        <div class="checks">
+          <label class="check"><input type="checkbox" id="slotToggle"> 车位</label>
+          <label class="check"><input type="checkbox" id="trailToggle" checked> 轨迹</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="stats">
+        <div class="stat"><div class="k">到达 / 总数</div>
+          <div class="v"><span id="sArrived">0</span><small> / <span id="sTotal">0</span></small></div></div>
+        <div class="stat"><div class="k">当前最小间距</div>
+          <div class="v"><span id="sMin">–</span><small> m</small></div></div>
+        <div class="stat"><div class="k">落点区域半径</div>
+          <div class="v"><span id="sGoalR">–</span><small> m</small></div></div>
+        <div class="stat"><div class="k">主动让路次数</div>
+          <div class="v" id="sYields">–</div></div>
+      </div>
+      <div class="legend">
+        <span><i style="background:#4ea8ff"></i>行进</span>
+        <span><i style="background:#3ddc84"></i>已到达</span>
+        <span><i style="background:#ffb547"></i>主动让路</span>
+        <span><i style="background:#ff5c5c"></i>异常</span>
+        <span><i style="background:#c492ff;border-radius:1px"></i>软车位</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>本次测试指标</h2>
+      <table class="metrics">
+        <tr><td>全部到达</td><td id="mAll">–</td></tr>
+        <tr><td>最小间距（全程）</td><td id="mMin">–</td></tr>
+        <tr><td>重叠帧 / 瞬移</td><td id="mOverlap">–</td></tr>
+        <tr><td>最远单位距目标点</td><td id="mDistance">–</td></tr>
+        <tr><td>路径规划峰值帧耗时</td><td id="mPlan">–</td></tr>
+        <tr><td>稳态单帧 p95</td><td id="mStep">–</td></tr>
+        <tr><td>硬安全截断次数</td><td id="mClamp">–</td></tr>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="note">
+        目标点会被扩展成一个<b>可站立落点区域</b>。100+ 个半径 0.35m 的胶囊不可能同时站在同一个数学点上。
+        每人有预留软车位，但拥挤时允许就近压实；<b>紫色车位不是瞬移终点</b>。
+        单位从不被外力平移：发生挤兑时，由单位自己减速、绕行或主动让路。
+      </div>
+    </div>
+    <div class="footer">
+      纯 C# 内核 · 地形高度场 + A* + ORCA + 顺序安全提交 · 页面读取完整轨迹导出数据。
+    </div>
+  </aside>
+</div>
+
+<script src="data/flagship_120.js"></script>
+<script src="data/packing_160.js"></script>
+<script src="data/flagship_late_140.js"></script>
+<script>
+(function () {
+  "use strict";
+  var scenes = window.CROWD_SCENES || {};
+  var keys = Object.keys(scenes);
+  var canvas = document.getElementById("view");
+  var ctx = canvas.getContext("2d");
+  var stage = document.getElementById("stage");
+  var scene = null, frames = [], frameIndex = 0, simTime = 0, duration = 1;
+  var playing = true, speed = 1, lastNow = 0, lastHud = 0;
+  var scale = 10, offX = 0, offY = 0, dpr = 1;
+  var dragging = false, dragX = 0, dragY = 0;
+  var terrainCanvas = null;
+
+  function $(id) { return document.getElementById(id); }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function fmt(v, d) { return (v === undefined || v === null || isNaN(v)) ? "–" : Number(v).toFixed(d); }
+  function worldSpan() { return scene.terrain.width * scene.terrain.cell; }
+
+  function initScenes() {
+    if (!keys.length) {
+      $("title").textContent = "缺少轨迹数据";
+      $("desc").textContent = "请先运行 dotnet run --project src/CrowdSim -- flagship 120 export 生成 visualizer/data/*.js。";
+      return;
+    }
+    for (var i = 0; i < keys.length; i++) {
+      var opt = document.createElement("option");
+      opt.value = keys[i];
+      opt.textContent = scenes[keys[i]].title || keys[i];
+      $("sceneSelect").appendChild(opt);
+    }
+    var hash = location.hash ? location.hash.slice(1) : "";
+    var initial = scenes[hash] ? hash : keys[0];
+    $("sceneSelect").value = initial;
+    loadScene(initial);
+  }
+
+  function loadScene(key) {
+    scene = scenes[key];
+    if (!scene) return;
+    location.hash = key;
+    $("title").textContent = scene.title;
+    $("desc").textContent = scene.description || "";
+    frames = scene.frames;
+    duration = frames.length ? frames[frames.length - 1].t : 0;
+    var params = new URLSearchParams(location.search);
+    var startT = params.has("t") ? Number(params.get("t")) : 0;
+    if (!isFinite(startT)) startT = 0;
+    simTime = clamp(startT, 0, duration);
+    frameIndex = findFrame(simTime);
+    playing = !(params.has("t") || params.get("paused") === "1");
+    $("playBtn").textContent = playing ? "暂停" : "播放";
+    $("timeline").max = duration; $("timeline").value = 0;
+    $("tEnd").textContent = duration.toFixed(1);
+    $("sTotal").textContent = scene.metrics.units;
+    $("sGoalR").textContent = fmt(scene.goalRadius, 2);
+    $("sYields").textContent = scene.metrics.yields;
+    $("ovUnits").textContent = scene.metrics.units;
+    fillMetrics();
+    buildTerrain();
+    fitMap();
+    updateHud();
+  }
+
+  function fillMetrics() {
+    var m = scene.metrics;
+    $("mAll").textContent = m.allArrived ? ("是 · " + fmt(m.allArrivedTime, 1) + "s") : "否";
+    $("mAll").className = m.allArrived ? "good" : "bad";
+    $("mMin").textContent = fmt(m.minSeparation, 3) + " m";
+    $("mOverlap").textContent = m.overlapTicks + " / " + m.teleports;
+    $("mOverlap").className = (m.overlapTicks === 0 && m.teleports === 0) ? "good" : "bad";
+    $("mDistance").textContent = fmt(m.finalMaxGoalDistance, 2) + " / " + fmt(scene.goalRadius, 2) + " m";
+    $("mPlan").textContent = fmt(m.planPeakMs, 2) + " ms";
+    $("mStep").textContent = fmt(m.steadyP95Ms, 3) + " ms";
+    $("mClamp").textContent = m.hardClamps;
+  }
+
+  function sampleHeight(map, x, z) {
+    var gx = x / map.cell - 0.5, gz = z / map.cell - 0.5;
+    var cx = clamp(gx, 0, map.width - 1), cz = clamp(gz, 0, map.height - 1);
+    var x0 = Math.floor(cx), z0 = Math.floor(cz);
+    var x1 = Math.min(x0 + 1, map.width - 1), z1 = Math.min(z0 + 1, map.height - 1);
+    var tx = cx - x0, tz = cz - z0;
+    var h00 = map.heights[z0 * map.width + x0], h10 = map.heights[z0 * map.width + x1];
+    var h01 = map.heights[z1 * map.width + x0], h11 = map.heights[z1 * map.width + x1];
+    var a = h00 + (h10 - h00) * tx, b = h01 + (h11 - h01) * tx;
+    return a + (b - a) * tz;
+  }
+
+  function buildTerrain() {
+    var map = scene.terrain, ppm = 16;
+    var W = Math.round(map.width * map.cell * ppm);
+    var H = Math.round(map.height * map.cell * ppm);
+    terrainCanvas = document.createElement("canvas");
+    terrainCanvas.width = W; terrainCanvas.height = H;
+    var g = terrainCanvas.getContext("2d");
+    var img = g.createImageData(W, H), data = img.data;
+    var hmin = Infinity, hmax = -Infinity, i;
+    for (i = 0; i < map.heights.length; i++) {
+      if (map.heights[i] < hmin) hmin = map.heights[i];
+      if (map.heights[i] > hmax) hmax = map.heights[i];
+    }
+    var span = Math.max(0.001, hmax - hmin);
+    for (var py = 0; py < H; py++) {
+      var z = (py + 0.5) / ppm;
+      for (var px = 0; px < W; px++) {
+        var x = (px + 0.5) / ppm;
+        var h = sampleHeight(map, x, z);
+        var e = 0.4;
+        var hx = (sampleHeight(map, x + e, z) - sampleHeight(map, x - e, z)) / (2 * e);
+        var hz = (sampleHeight(map, x, z + e) - sampleHeight(map, x, z - e)) / (2 * e);
+        var nl = Math.hypot(hx, 1, hz);
+        var shade = (-hx * -0.55 + 1 * 0.72 + -hz * -0.42) / nl;
+        shade = clamp(0.62 + shade * 0.55, 0.42, 1.2);
+        var t = (h - hmin) / span, r, gc, b;
+        if (t < 0.3) { var u = t / 0.3; r = 74 + 36 * u; gc = 121 + 31 * u; b = 91 + 12 * u; }
+        else if (t < 0.62) { u = (t - 0.3) / 0.32; r = 110 + 54 * u; gc = 152 + 14 * u; b = 103 + 10 * u; }
+        else if (t < 0.86) { u = (t - 0.62) / 0.24; r = 164 + 38 * u; gc = 166 + 14 * u; b = 113 + 24 * u; }
+        else { u = (t - 0.86) / 0.14; r = 202 + 30 * u; gc = 180 + 20 * u; b = 137 + 34 * u; }
+        r *= shade; gc *= shade; b *= shade;
+        var band = Math.floor(h * 2);
+        if (band !== Math.floor(sampleHeight(map, x + 0.08, z) * 2) ||
+            band !== Math.floor(sampleHeight(map, x, z + 0.08) * 2)) {
+          r *= 0.83; gc *= 0.83; b *= 0.83;
+        }
+        i = (py * W + px) * 4;
+        data[i] = r; data[i + 1] = gc; data[i + 2] = b; data[i + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+    var spanM = worldSpan();
+    g.save();
+    g.scale(W / spanM, H / spanM);
+    for (i = 0; i < scene.obstacles.length; i++) {
+      var o = scene.obstacles[i];
+      g.beginPath(); g.arc(o[0], o[1], o[2], 0, Math.PI * 2);
+      g.fillStyle = "#30363b"; g.fill();
+      g.lineWidth = 0.12; g.strokeStyle = "rgba(0,0,0,.7)"; g.stroke();
+      g.beginPath(); g.arc(o[0] - o[2] * 0.24, o[1] - o[2] * 0.24, o[2] * 0.62, 0, Math.PI * 2);
+      g.fillStyle = "rgba(255,255,255,.05)"; g.fill();
+    }
+    g.restore();
+  }
+
+  function resize() {
+    var w = stage.clientWidth, h = stage.clientHeight;
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    canvas.style.width = w + "px"; canvas.style.height = h + "px";
+  }
+
+  function fitMap() {
+    var w = stage.clientWidth, h = stage.clientHeight, span = worldSpan();
+    scale = Math.min(w, h) / span * 0.94;
+    offX = (w - span * scale) / 2;
+    offY = (h - span * scale) / 2;
+  }
+
+  function focusGoal() {
+    var w = stage.clientWidth, h = stage.clientHeight;
+    scale = Math.min(w, h) / Math.max(12, scene.goalRadius * 2.5);
+    offX = w / 2 - scene.goal[0] * scale;
+    offY = h / 2 - scene.goal[1] * scale;
+  }
+
+  function findFrame(t) {
+    var lo = 0, hi = frames.length - 1;
+    while (lo < hi) {
+      var mid = (lo + hi) >> 1;
+      if (frames[mid].t <= t) lo = mid + 1; else hi = mid;
+    }
+    return Math.max(0, Math.min(frames.length - 1, lo - 1));
+  }
+
+  function updateHud() {
+    var f = frames[frameIndex];
+    $("tNow").textContent = simTime.toFixed(1);
+    $("timeline").value = simTime;
+    $("ovArrived").textContent = f.arr;
+    $("sArrived").textContent = f.arr;
+    $("ovMin").textContent = f.min.toFixed(3);
+    $("sMin").textContent = f.min.toFixed(3);
+    $("sMin").className = f.min < 2 * scene.unitRadius - 1e-3 ? "bad" : "good";
+    var finalized = scene.goalFinalized && simTime >= scene.goalFinalizedTime - 1e-6;
+    $("ovFinal").style.display = finalized ? "" : "none";
+  }
+
+  function drawGoal(c) {
+    var gx = scene.goal[0], gz = scene.goal[1], gr = scene.goalRadius;
+    c.beginPath();
+    var side = scene.approachSide;
+    if (side && Math.hypot(side[0], side[1]) > 1e-4) {
+      var a = Math.atan2(side[1], side[0]);
+      c.arc(gx, gz, gr, a - Math.PI / 2, a + Math.PI / 2);
+      c.closePath();
+    } else {
+      c.arc(gx, gz, gr, 0, Math.PI * 2);
+    }
+    c.fillStyle = "rgba(92,200,255,.055)"; c.fill();
+    c.setLineDash([0.32, 0.26]);
+    c.lineWidth = 0.075; c.strokeStyle = "rgba(146,224,255,.55)"; c.stroke();
+    c.setLineDash([]);
+    c.beginPath(); c.arc(gx, gz, scene.unitRadius * 0.7, 0, Math.PI * 2);
+    c.fillStyle = "#ff5f6d"; c.fill();
+    c.lineWidth = 0.05; c.strokeStyle = "rgba(255,255,255,.85)"; c.stroke();
+    c.beginPath();
+    for (var k = 0; k < 10; k++) {
+      var a = -Math.PI / 2 + k * Math.PI / 5;
+      var r = k % 2 === 0 ? 0.62 : 0.26;
+      var px = gx + Math.cos(a) * r, pz = gz + Math.sin(a) * r;
+      if (k === 0) c.moveTo(px, pz); else c.lineTo(px, pz);
+    }
+    c.closePath(); c.fillStyle = "rgba(255,255,255,.92)"; c.fill();
+  }
+
+  function drawUnit(i, X, Y, st, dx, dz) {
+    var R = Math.max(2.1, scene.unitRadius * scale);
+    var base = st === 1 ? "#3ddc84" : st === 3 ? "#ffb547" : st === 2 ? "#ff5c5c" : "#4ea8ff";
+    var hi = st === 1 ? "#a8ffc9" : st === 3 ? "#ffe0a8" : st === 2 ? "#ffc2c2" : "#c7ecff";
+    ctx.beginPath();
+    ctx.ellipse(X + R * 0.3, Y + R * 0.42, R * 0.95, R * 0.62, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(0,0,0,.34)"; ctx.fill();
+
+    var dl = Math.hypot(dx, dz);
+    var fx = dl > 1e-6 ? dx / dl : 0, fz = dl > 1e-6 ? dz / dl : 1;
+    ctx.beginPath(); ctx.arc(X, Y, R, 0, Math.PI * 2);
+    ctx.fillStyle = base; ctx.fill();
+    ctx.lineWidth = Math.max(1, R * 0.18); ctx.strokeStyle = "rgba(4,9,13,.68)"; ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(X + fx * R * 1.55, Y + fz * R * 1.55);
+    ctx.lineTo(X + fx * R * 0.35 - fz * R * 0.55, Y + fz * R * 0.35 + fx * R * 0.55);
+    ctx.lineTo(X + fx * R * 0.35 + fz * R * 0.55, Y + fz * R * 0.35 - fx * R * 0.55);
+    ctx.closePath(); ctx.fillStyle = hi; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;
+
+    ctx.beginPath(); ctx.arc(X - R * 0.26, Y - R * 0.3, R * 0.28, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,.45)"; ctx.fill();
+    if (st === 1) {
+      ctx.beginPath(); ctx.arc(X, Y, R * 0.27, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(3,30,18,.72)"; ctx.fill();
+    }
+  }
+
+  function draw() {
+    if (!scene) return;
+    var w = canvas.width, h = canvas.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#05080b"; ctx.fillRect(0, 0, w, h);
+    ctx.save();
+    ctx.scale(dpr, dpr);
+
+    var span = worldSpan();
+    ctx.save();
+    ctx.translate(offX, offY);
+    ctx.scale(scale, scale);
+    if (terrainCanvas) ctx.drawImage(terrainCanvas, 0, 0, span, span);
+    drawGoal(ctx);
+    ctx.restore();
+
+    var f0 = frames[frameIndex];
+    var f1 = frames[Math.min(frameIndex + 1, frames.length - 1)];
+    var alpha = f1 === f0 ? 0 : clamp((simTime - f0.t) / Math.max(1e-6, f1.t - f0.t), 0, 1);
+    var n = f0.n, i, order = [], xs = [], zs = [], states = [];
+    for (i = 0; i < n; i++) {
+      var has = i < f1.n;
+      xs[i] = has ? f0.x[i] + (f1.x[i] - f0.x[i]) * alpha : f0.x[i];
+      zs[i] = has ? f0.z[i] + (f1.z[i] - f0.z[i]) * alpha : f0.z[i];
+      states[i] = f0.s[i];
+      order.push(i);
+    }
+    order.sort(function (a, b) { return zs[a] - zs[b]; });
+
+    if ($("trailToggle").checked) {
+      var start = Math.max(0, frameIndex - 14);
+      ctx.save(); ctx.globalAlpha = 0.2; ctx.lineCap = "round";
+      for (var oi = 0; oi < n; oi++) {
+        i = order[oi];
+        if (states[i] === 1) continue;
+        ctx.beginPath();
+        var started = false;
+        for (var k = start; k <= frameIndex; k++) {
+          var fr = frames[k];
+          if (i >= fr.n) continue;
+          var tx = offX + fr.x[i] * scale, ty = offY + fr.z[i] * scale;
+          if (!started) { ctx.moveTo(tx, ty); started = true; } else ctx.lineTo(tx, ty);
+        }
+        ctx.strokeStyle = states[i] === 3 ? "#ffb547" : "#78c8ff";
+        ctx.lineWidth = Math.max(1, scale * 0.055); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    if ($("slotToggle").checked) {
+      ctx.save();
+      for (i = 0; i < scene.slots.length; i++) {
+        var p = scene.slots[i], sx = offX + p[0] * scale, sy = offY + p[1] * scale;
+        ctx.beginPath(); ctx.arc(sx, sy, Math.max(1.5, scale * 0.09), 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(196,146,255,.78)";
+        ctx.lineWidth = Math.max(1, scale * 0.035); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    for (var oi2 = 0; oi2 < n; oi2++) {
+      i = order[oi2];
+      var X = offX + xs[i] * scale, Y = offY + zs[i] * scale;
+      var dx = 0, dz = 0;
+      if (frameIndex > 0) {
+        var prev = frames[frameIndex - 1];
+        if (i < prev.n) { dx = xs[i] - prev.x[i]; dz = zs[i] - prev.z[i]; }
+      }
+      if (Math.abs(dx) + Math.abs(dz) < 1e-5 && i < f1.n) {
+        dx = f1.x[i] - f0.x[i]; dz = f1.z[i] - f0.z[i];
+      }
+      drawUnit(i, X, Y, states[i], dx, dz);
+    }
+
+    var grad = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.72);
+    grad.addColorStop(0, "rgba(0,0,0,0)"); grad.addColorStop(1, "rgba(0,0,0,.32)");
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, w, h);
+
+    // scale bar
+    var bar = 10 * scale, bx = 18, by = h / dpr - 22;
+    ctx.strokeStyle = "rgba(220,235,245,.8)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + bar, by);
+    ctx.moveTo(bx, by - 4); ctx.lineTo(bx, by + 4);
+    ctx.moveTo(bx + bar, by - 4); ctx.lineTo(bx + bar, by + 4); ctx.stroke();
+    ctx.fillStyle = "rgba(220,235,245,.8)"; ctx.font = "11px sans-serif";
+    ctx.fillText("10 m", bx + bar + 7, by + 4);
+    ctx.restore();
+  }
+
+  function animate(now) {
+    if (!scene) { requestAnimationFrame(animate); return; }
+    if (!lastNow) lastNow = now;
+    var dt = Math.min(0.1, (now - lastNow) / 1000);
+    lastNow = now;
+    if (playing) {
+      simTime += dt * speed;
+      if (simTime >= duration) { simTime = duration; playing = false; $("playBtn").textContent = "播放"; }
+    }
+    frameIndex = findFrame(simTime);
+    if (now - lastHud > 48) { updateHud(); lastHud = now; }
+    draw();
+    requestAnimationFrame(animate);
+  }
+
+  canvas.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    var r = canvas.getBoundingClientRect();
+    var mx = e.clientX - r.left, my = e.clientY - r.top;
+    var wx = (mx - offX) / scale, wz = (my - offY) / scale;
+    var factor = Math.exp(-e.deltaY * 0.0012);
+    var ns = clamp(scale * factor, 5, 160);
+    offX = mx - wx * ns; offY = my - wz * ns; scale = ns;
+  }, { passive: false });
+
+  canvas.addEventListener("pointerdown", function (e) {
+    dragging = true; dragX = e.clientX; dragY = e.clientY;
+    canvas.classList.add("dragging");
+    try { canvas.setPointerCapture(e.pointerId); } catch (x) {}
+  });
+  canvas.addEventListener("pointermove", function (e) {
+    if (!dragging) return;
+    offX += e.clientX - dragX; offY += e.clientY - dragY;
+    dragX = e.clientX; dragY = e.clientY;
+  });
+  canvas.addEventListener("pointerup", function (e) {
+    dragging = false; canvas.classList.remove("dragging");
+    try { canvas.releasePointerCapture(e.pointerId); } catch (x) {}
+  });
+  canvas.addEventListener("dblclick", fitMap);
+
+  $("playBtn").addEventListener("click", function () {
+    if (!scene) return;
+    if (simTime >= duration - 1e-6) simTime = 0;
+    playing = !playing; $("playBtn").textContent = playing ? "暂停" : "播放";
+  });
+  $("endBtn").addEventListener("click", function () {
+    simTime = duration; playing = false; $("playBtn").textContent = "播放";
+    frameIndex = findFrame(simTime); updateHud();
+  });
+  $("timeline").addEventListener("input", function (e) {
+    simTime = Number(e.target.value);
+    frameIndex = findFrame(simTime); updateHud();
+  });
+  $("speedSelect").addEventListener("change", function (e) { speed = Number(e.target.value); });
+  $("focusBtn").addEventListener("click", focusGoal);
+  $("sceneSelect").addEventListener("change", function (e) { loadScene(e.target.value); });
+  window.addEventListener("resize", function () { resize(); fitMap(); });
+
+  initScenes();
+  resize();
+  if (scene) fitMap();
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>

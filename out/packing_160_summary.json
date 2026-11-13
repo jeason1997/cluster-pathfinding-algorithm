@@ -1,0 +1,1 @@
+{"scenario":"packing","units":160,"seconds":12.367,"allArrived":true,"minSeparation":0.7203,"overlapTicks":0,"teleports":0,"finalMaxGoalDistance":7.556,"goalFootprintRadius":8.000,"maxPostArrivalMovement":0.00000,"planTotalMs":23.842,"planPeakMs":2.343,"steadyMeanMs":0.424,"steadyP95Ms":0.674,"stepMaxMs":5.585,"yields":3,"hardClamps":0,"accelP99":73.968}

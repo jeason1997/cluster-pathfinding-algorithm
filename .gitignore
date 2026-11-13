@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+**/__pycache__/
+*.user
+.vs/
+out/*.log
+out/*.csv
+out/interactive-server/
+out/chrome-*/
+out/chrome_cdp.pid
