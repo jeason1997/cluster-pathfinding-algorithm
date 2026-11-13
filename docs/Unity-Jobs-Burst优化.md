@@ -434,6 +434,25 @@ corridor 最小可通过宽度 ≈ 2 * agentRadius + 2 * clearanceMargin + cellS
 
 ---
 
+### 12.5 在编辑器里看实际可走区域 / 动态重烘
+
+Unity 菜单 **`CrowdNav/Grid Viewer`** 打开一个 EditorWindow：
+
+- 场景视图叠加绿色半透明网格 = `CrowdGridData.Grid.Walkable`，不是另写一套近似规则；它直接调用 `CrowdMap.LoadFromText` + `CrowdGridData.Build`。
+- 可调 `Agent radius`、`Max slope`、`Clearance margin`、`Mirror X`，点 **Bake / Refresh** 立即重算并重画。
+- 勾 **Color by clearance** 用红→绿显示净空：红色是刚好卡着半径的窄处，绿色是宽处。
+- **Use scene unit size** 直接取当前场景 `CrowdNavDemo.unitSize` 对应的半径，保证和运行时一致。
+- 窗口里会显示 `Walkable / Total` 格数，方便对比“改半径后少了多少路”。示例：半径 0.35 m、坡度 42° 时是 **10069 / 41595** 格。
+- 编辑器批处理自检：`Unity.exe -batchmode -nographics -projectPath Unity/CrowdNav.Unity -executeMethod CrowdNav.Unity.EditorTools.CrowdGridViewer.BakeForTest -quit` 会打印 `GRIDVIEW walkable=...`，可用于 CI 验证烘焙路径。
+
+运行时也可以动态重烘，不需要重开场景：
+
+- 参数行的 **`应用参数/重烘`** 会重新 `LoadFromText`、`CrowdGridData.Build`、重建出生队形/车位并 `Restart`；状态行会显示本次重烘耗时（A16 约 25–35 ms）。
+- `unitSize` 同时改变净空半径和单位显示大小；如果只想改导航半径、不改视觉大小，目前需要给 `CrowdNavDemo` 加一个独立 `bakeRadius` 字段（核心 `CrowdGridData.Build` 本身已经支持任意半径）。
+- 这就是“类似 Unity NavMesh 重新 Bake”的动态版本：NavMesh 要改 BakeSettings 重烘整张 NavMesh；这里重烘单层高度场 + 距离变换只要几十毫秒，但只支持单层。
+
+---
+
 ## 13. 文件索引
 
 | 文件 | 作用 |
@@ -450,4 +469,5 @@ corridor 最小可通过宽度 ≈ 2 * agentRadius + 2 * clearanceMargin + cellS
 | `Assets/CrowdNav.Core/CrowdSimulation.cs` | Job 图与生命周期 |
 | `Assets/CrowdNav.App/CrowdNavDemo.cs` | 手机 Demo + 设备基准 |
 | `Assets/Editor/CrowdNav.Editor/UnityBuilder.cs` | 场景/PlayerSettings/APK |
+| `Assets/Editor/CrowdNav.Editor/CrowdGridViewer.cs` | 场景视图可走区域/净空叠加、参数化重烘 |
 | `Assets/Editor/CrowdNav.Editor/Benchmarks/*.cs` | 基线、核心、平地、功能测试 |

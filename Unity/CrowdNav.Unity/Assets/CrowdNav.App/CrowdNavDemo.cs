@@ -601,7 +601,7 @@ namespace CrowdNav.Unity
             if (GUI.Button(new Rect(24, y2, 260, 70), _labelCount)) CycleCount();
             if (GUI.Button(new Rect(300, y2, 260, 70), _labelSize)) CycleSize();
             if (GUI.Button(new Rect(576, y2, 260, 70), _labelSpeed)) CycleSpeed();
-            if (GUI.Button(new Rect(852, y2, 300, 70), "应用参数")) ApplyParameters();
+            if (GUI.Button(new Rect(852, y2, 300, 70), "应用参数/重烘")) ApplyParameters();
             if (GUI.Button(new Rect(1170, y2, 260, 70), _labelFps)) CycleTargetFps();
 
             GUI.Label(new Rect(24, 360, 2200, 50), _status, GUI.skin.label);
@@ -691,13 +691,15 @@ namespace CrowdNav.Unity
                 _agentRadius = 0.35f * unitSize;
                 _slotSpacing = Mathf.Max(0.45f, 2f * _agentRadius + 0.10f);
                 _renderScale = _agentRadius / 0.35f;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 _map = CrowdMap.LoadFromText(mapAsset.text, _agentRadius, mirrorMapX);
                 BuildSpawns();
                 Restart(_mode, _hz);
+                sw.Stop();
                 SetGoalAt(_map.SuggestedGoal.X, _map.SuggestedGoal.Z);
                 _status = string.Format(CultureInfo.InvariantCulture,
-                    "已应用：{0} 人，大小 x{1:0.0}（半径 {2:0.00} m），速度 {3:0.0} m/s，镜像X={4}",
-                    _count, unitSize, _agentRadius, moveSpeed, mirrorMapX);
+                    "已应用：{0} 人，大小 x{1:0.0}（半径 {2:0.00} m），速度 {3:0.0} m/s，镜像X={4}，重烘 {5:0} ms",
+                    _count, unitSize, _agentRadius, moveSpeed, mirrorMapX, sw.Elapsed.TotalMilliseconds);
                 if (_count < unitCount) _status += "（出生区只放下 " + _count + "/" + unitCount + "）";
                 RefreshUiLabels();
                 Debug.Log("CROWD PARAMS " + _status);
