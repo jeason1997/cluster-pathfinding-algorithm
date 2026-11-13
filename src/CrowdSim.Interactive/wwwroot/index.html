@@ -1085,6 +1085,7 @@
   function connect() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(proto + "://" + location.host + "/ws");
+    ws.binaryType = "arraybuffer";
     setConn(false, "连接中");
     ws.onopen = () => {
       connected = true;
@@ -1100,6 +1101,11 @@
     };
     ws.onerror = () => { setConn(false, "连接失败"); };
     ws.onmessage = ev => {
+      if (ev.data instanceof ArrayBuffer) {
+        const packed = decodeStateBinary(ev.data);
+        if (packed) handleMessage(packed);
+        return;
+      }
       let msg;
       try { msg = JSON.parse(ev.data); } catch (e) { return; }
       handleMessage(msg);
@@ -1132,6 +1138,48 @@
     t.style.display = "block";
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.style.display = "none"; }, 3200);
+  }
+
+  function decodeStateBinary(buf) {
+    const dv = new DataView(buf);
+    if (dv.byteLength < 72 || dv.getUint32(0, true) !== 0x43534E31) return null;
+    let o = 0;
+    const magic = dv.getUint32(o, true); o += 4;
+    const type = dv.getUint8(o++); o++; // type, hasGoal
+    const hasGoal = dv.getUint8(o - 1) === 1;
+    const finalized = dv.getUint8(o++) === 1;
+    o++; // reserved
+    const t = dv.getFloat32(o, true); o += 4;
+    const count = dv.getInt32(o, true); o += 4;
+    const arrived = dv.getInt32(o, true); o += 4;
+    const minSep = dv.getFloat32(o, true); o += 4;
+    const minSepEver = dv.getFloat32(o, true); o += 4;
+    const yields = dv.getInt32(o, true); o += 4;
+    const reflows = dv.getInt32(o, true); o += 4;
+    const stepMs = dv.getFloat32(o, true); o += 4;
+    const pending = dv.getInt32(o, true); o += 4;
+    const intervalMs = dv.getInt32(o, true); o += 4;
+    const gx = dv.getFloat32(o, true); o += 4;
+    const gz = dv.getFloat32(o, true); o += 4;
+    const gr = dv.getFloat32(o, true); o += 4;
+    const gsx = dv.getFloat32(o, true); o += 4;
+    const gsz = dv.getFloat32(o, true); o += 4;
+    const finalizedAt = dv.getFloat32(o, true); o += 4;
+    if (dv.byteLength < o + count * 13) return null;
+    const agents = new Array(count);
+    for (let i = 0; i < count; i++) {
+      const x = dv.getFloat32(o, true); o += 4;
+      const z = dv.getFloat32(o, true); o += 4;
+      const sp = dv.getFloat32(o, true); o += 4;
+      const st = dv.getUint8(o++);
+      agents[i] = [x, z, st, sp];
+    }
+    return {
+      type: "state", t, count, arrived, minSep, minSepEver, yields, reflows,
+      stepMs, pending, intervalMs, finalized, hasGoal,
+      goal: hasGoal ? [gx, gz] : null, goalRadius: gr,
+      goalSide: [gsx, gsz], finalizedAt, agents, error: ""
+    };
   }
 
   function handleMessage(msg) {

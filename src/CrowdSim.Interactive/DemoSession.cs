@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 using System.Text;
 using System.Text.Json;
 using CrowdNav;
@@ -329,6 +330,86 @@ public sealed class DemoSession
         }
     }
 
+    /// <summary>
+    /// Compact periodic state snapshot. Positions are float32 and state is a byte;
+    /// 1000 units fit in ~13 KB and avoid JSON number parsing on the browser main thread.
+    /// JSON is still used for world/init/reset/goal messages.
+    /// </summary>
+    public byte[] BuildStateBinary()
+    {
+        lock (_gate)
+        {
+            CrowdSimulation sim = _sim;
+            int n = sim.Agents.Count;
+            int arrived = 0;
+            for (int i = 0; i < n; i++)
+            {
+                Agent a = sim.Agents[i];
+                if (a.State == AgentState.Arrived || a.State == AgentState.Yielding || a.ReturningToSlot)
+                    arrived++;
+            }
+
+            if (n <= 1)
+            {
+                _minSepCache = 0f;
+                _minSepCacheTime = sim.Time;
+            }
+            else if (sim.Time - _minSepCacheTime >= 0.5f)
+            {
+                float minD2 = float.MaxValue;
+                for (int i = 0; i < n; i++)
+                {
+                    Vec2 pi = sim.Agents[i].Position;
+                    for (int j = i + 1; j < n; j++)
+                    {
+                        float d2 = Vec2.DistanceSq(pi, sim.Agents[j].Position);
+                        if (d2 < minD2) minD2 = d2;
+                    }
+                }
+                _minSepCache = MathF.Sqrt(minD2);
+                _minSepCacheTime = sim.Time;
+            }
+            if (sim.HasActiveGoal && _minSepCache < _minSepEver) _minSepEver = _minSepCache;
+            if (sim.HasActiveGoal && arrived < n && sim.LastStepMs > 0.02)
+                _lastActiveStepMs = (float)sim.LastStepMs;
+
+            int intervalMs = n > 600 ? 50 : 33;
+            using var ms = new MemoryStream(64 + n * 13);
+            using var w = new BinaryWriter(ms);
+            w.Write(0x43534E31u); // CSN1
+            w.Write((byte)1);     // periodic state
+            w.Write((byte)(sim.HasActiveGoal ? 1 : 0));
+            w.Write((byte)(sim.GroupGoalFinalized ? 1 : 0));
+            w.Write((byte)0);
+            w.Write(sim.Time);
+            w.Write(n);
+            w.Write(arrived);
+            w.Write(_minSepCache);
+            w.Write(_minSepEver == float.MaxValue ? 0f : _minSepEver);
+            w.Write(sim.TotalCourtesyYields);
+            w.Write(sim.ReflowCount);
+            w.Write(_lastActiveStepMs);
+            w.Write(sim.PendingPathPlans);
+            w.Write(intervalMs);
+            w.Write(sim.GoalCenter.X);
+            w.Write(sim.GoalCenter.Z);
+            w.Write(sim.HasActiveGoal ? sim.GoalFootprintRadius : 0f);
+            w.Write(sim.GoalApproachSide.X);
+            w.Write(sim.GoalApproachSide.Z);
+            w.Write(sim.GroupGoalFinalizedTime);
+            for (int i = 0; i < n; i++)
+            {
+                Agent a = sim.Agents[i];
+                w.Write(a.Position.X);
+                w.Write(a.Position.Z);
+                w.Write(a.Velocity.Length);
+                w.Write((byte)a.State);
+            }
+            w.Flush();
+            return ms.ToArray();
+        }
+    }
+
     public string BuildGoalJson(bool ok, Vec2 goal, string error)
     {
         lock (_gate)
@@ -377,6 +458,9 @@ public sealed class DemoSession
         // The imported sandbox is the “walk to the portal” test: keep pressing
         // toward the click. The procedural benchmark keeps its old flow.
         config.GoalCenterAttraction = map.Id != "flagship";
+        // All units share the clicked goal; one reverse Dijkstra is enough and
+        // avoids 1000 independent A* searches on every command.
+        config.SharedFlowField = map.Id != "flagship";
         config.GoalZoneMaxSpeed = 0f; // keep pressing toward the click
         config.UseOrca = true;
         config.OrcaSafetyMargin = 0.10f;

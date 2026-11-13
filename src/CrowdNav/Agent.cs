@@ -113,6 +113,7 @@ namespace CrowdNav
         public bool FormationPreservingAssignment = true;
         public bool QueueNarrowGoal = true;
         public float QueueGoalMaxRadius = 0f;
+        public bool SharedFlowField = false;
         public bool SpaceAwareGoalLayout = false;
         public bool GoalCenterAttraction = false;
         public bool KeepInsideGoalOnceEntered = false;

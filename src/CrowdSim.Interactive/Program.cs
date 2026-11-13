@@ -77,6 +77,24 @@ public static class Program
             }
         }
 
+        async Task SendBytes(byte[] bytes)
+        {
+            if (socket.State != WebSocketState.Open) return;
+            await sendLock.WaitAsync(cts.Token);
+            try
+            {
+                if (socket.State == WebSocketState.Open)
+                    await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Binary,
+                        true, cts.Token);
+            }
+            catch (OperationCanceledException) { }
+            catch (WebSocketException) { }
+            finally
+            {
+                sendLock.Release();
+            }
+        }
+
         try
         {
             await Send(session.BuildWorldJson());
@@ -97,7 +115,7 @@ public static class Program
                         // interpolation is much cheaper than 30 Hz full state.
                         int stateEvery = session.Count > 600 ? 3 : 2;
                         if (++tick % stateEvery == 0)
-                            await Send(session.BuildStateJson("state"));
+                            await SendBytes(session.BuildStateBinary());
                     }
                 }
                 catch (OperationCanceledException) { }

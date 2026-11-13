@@ -263,6 +263,35 @@ namespace CrowdNav
             int start = Index(sx, sz);
             if (_walkable[start]) return start;
 
+            // Fast local ring search first. The old implementation allocated a
+            // bool[CellCount] and a Queue for every non-walkable start cell; with
+            // 1000 path plans at a goal command that allocation dominated the frame.
+            for (int radius = 1; radius <= 8; radius++)
+            {
+                int minX = sx - radius, maxX = sx + radius;
+                int minZ = sz - radius, maxZ = sz + radius;
+                int ringBest = -1;
+                float bestD = float.MaxValue;
+                for (int z = minZ; z <= maxZ; z++)
+                {
+                    if (z < 0 || z >= Height) continue;
+                    for (int x = minX; x <= maxX; x++)
+                    {
+                        if (x < 0 || x >= Width) continue;
+                        if (x != minX && x != maxX && z != minZ && z != maxZ) continue;
+                        int ni = Index(x, z);
+                        if (!_walkable[ni]) continue;
+                        float d = Vec2.DistanceSq(CellCenter(ni), p);
+                        if (d < bestD)
+                        {
+                            bestD = d;
+                            ringBest = ni;
+                        }
+                    }
+                }
+                if (ringBest >= 0) return ringBest;
+            }
+
             var q = new Queue<int>();
             var seen = new bool[CellCount];
             q.Enqueue(start);

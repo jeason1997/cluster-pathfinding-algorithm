@@ -53,6 +53,8 @@ namespace CrowdNav
         public float GoalFootprintRadius => _goalMaxRadius + Config.GoalFootprintPadding;
 
         private readonly PathFinder _pathFinder;
+        private readonly FlowField _flowField;
+        private bool _flowReady;
         private readonly OrcaSolver _orca = new OrcaSolver();
         private readonly SpatialHash _hash;
         private readonly List<int> _neighbors = new List<int>(32);
@@ -81,6 +83,7 @@ namespace CrowdNav
             Grid = grid;
             Config = config;
             _pathFinder = new PathFinder(grid);
+            _flowField = new FlowField(grid);
             _hash = new SpatialHash(grid.Map.WorldMinX, grid.Map.WorldMinZ,
                 grid.Map.WorldMaxX, grid.Map.WorldMaxZ, 1.25f);
             _newPositions = new Vec2[4096];
@@ -233,7 +236,9 @@ namespace CrowdNav
             EnsureCapacity(Agents.Count);
             var frameWatch = Stopwatch.StartNew();
 
-            ProcessPathQueue(Config.PathPlanFrameBudget);
+            ProcessPathQueue(Config.SharedFlowField
+                ? Math.Max(32, Config.PathPlanFrameBudget)
+                : Config.PathPlanFrameBudget);
             ProcessReplans(2);
             UpdatePathsAndDesires(dt);
 
@@ -792,12 +797,16 @@ namespace CrowdNav
             float sepSq = sep * sep;
             for (int pass = 0; pass < 6; pass++)
             {
+                _hash.Rebuild(Agents);
                 bool any = false;
                 for (int i = 0; i < Agents.Count; i++)
                 {
-                    for (int j = i + 1; j < Agents.Count; j++)
+                    Vec2 pi = Agents[i].Position;
+                    _hash.Query(pi, sep, _query);
+                    for (int q = 0; q < _query.Count; q++)
                     {
-                        Vec2 pi = Agents[i].Position;
+                        int j = _query[q];
+                        if (j <= i) continue;
                         Vec2 pj = Agents[j].Position;
                         if (Vec2.DistanceSq(pi, pj) >= sepSq) continue;
                         any = true;
@@ -853,9 +862,14 @@ namespace CrowdNav
 
             float sep = Config.RequiredSeparation;
             float sepSq = sep * sep;
-            for (int j = 0; j < Agents.Count; j++)
+            // A neighbour that has not committed yet may move into range this
+            // tick, so query with its maximum possible displacement included.
+            float queryRadius = sep + Config.MaxSpeed * _commitDt + 0.05f;
+            _hash.Query(end, queryRadius, _query);
+            for (int qi = 0; qi < _query.Count; qi++)
             {
-                if (j == a.Id) continue;
+                int j = _query[qi];
+                if (ReferenceEquals(Agents[j], a)) continue;
                 Agent b = Agents[j];
                 Vec2 q;
                 if (_hasMoved[j])
@@ -1247,6 +1261,13 @@ namespace CrowdNav
                     }
                 }
             }
+
+            _flowReady = false;
+            if (Config.SharedFlowField)
+            {
+                _flowField.Build(GoalCenter);
+                _flowReady = _flowField.IsBuilt;
+            }
         }
 
         private void RebuildGoalForCount(Vec2 goal, int count, IReadOnlyList<Agent> existing)
@@ -1261,6 +1282,12 @@ namespace CrowdNav
             _settleBestSum = float.MaxValue;
             _settleProgressTime = -1f;
             GoalAssigner.AssignPreservingExisting(Agents, GoalLayout, existing);
+            _flowReady = false;
+            if (Config.SharedFlowField)
+            {
+                _flowField.Build(GoalCenter);
+                _flowReady = _flowField.IsBuilt;
+            }
         }
 
         private Vec2 ComputeApproachSide(Vec2 goal)
@@ -1328,7 +1355,10 @@ namespace CrowdNav
         public void PlanAgent(Agent a)
         {
             if (a.SlotIndex < 0) return;
-            _pathFinder.FindPath(a.Position, a.SlotPosition, _pathResult);
+            if (_flowReady)
+                _flowField.BuildPath(a.Position, _pathResult);
+            else
+                _pathFinder.FindPath(a.Position, a.SlotPosition, _pathResult);
             TotalPathsPlanned++;
             a.TotalPathLength = 0f;
             if (!_pathResult.Success)
@@ -1339,9 +1369,24 @@ namespace CrowdNav
                 return;
             }
 
-            PathSmoother.Smooth(Grid, a.Position, _pathResult.CellPath, a.SlotPosition, _smooth);
             a.Path.Clear();
-            for (int i = 0; i < _smooth.Count; i++) a.Path.Add(_smooth[i]);
+            if (_flowReady)
+            {
+                // The field already encodes the route; skipping per-agent string
+                // pulling keeps a 1000-unit command cheap.
+                a.Path.Add(a.Position);
+                for (int i = 0; i < _pathResult.CellPath.Count; i++)
+                {
+                    Vec2 p = _pathResult.CellPath[i];
+                    if (Vec2.DistanceSq(p, a.Path[a.Path.Count - 1]) > 1e-6f)
+                        a.Path.Add(p);
+                }
+            }
+            else
+            {
+                PathSmoother.Smooth(Grid, a.Position, _pathResult.CellPath, a.SlotPosition, _smooth);
+                for (int i = 0; i < _smooth.Count; i++) a.Path.Add(_smooth[i]);
+            }
             a.WaypointIndex = a.Path.Count > 1 ? 1 : 0;
             a.HasPath = a.Path.Count > 0;
             a.State = AgentState.Moving;
