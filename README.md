@@ -2,7 +2,7 @@
 
 一个不依赖 Unity 的可运行原型：把 100–300 个 NPC 从 A 点送到 B 点，地形有上坡、下坡、山脊和岩体；要求单位不重叠、不被平移推挤、发生挤兑时自己让路、全程平滑，并且全部到达。
 
-> **先看这里：** [自动测试报告](docs/测试报告.md) · [方案设计](docs/方案设计与实现.md) · [交互演示](http://127.0.0.1:8799/)
+> **先看这里：** [GitHub Pages 项目主页](https://jeason1997.github.io/cluster-pathfinding-algorithm/) · [GitHub 仓库](https://github.com/jeason1997/cluster-pathfinding-algorithm) · [自动测试报告](docs/测试报告.md) · [方案设计](docs/方案设计与实现.md) · [本机交互演示](http://127.0.0.1:8799/)
 
 ## 新增：实时点击测试（RTS 式）
 
