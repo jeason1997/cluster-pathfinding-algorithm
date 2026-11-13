@@ -443,6 +443,10 @@ corridor 最小可通过宽度 ≈ 2 * agentRadius + 2 * clearanceMargin + cellS
 - 覆盖 mesh 在重烘后自动重建；颜色是青色（和单位的蓝/绿/红/黄状态色区分开）。
 - 半径和坡度/净空直接传给 `CrowdMap.LoadFromText` + `CrowdGridData.Build`，不是另画一份近似区域。
 
+手机第二行现在是数量/大小/速度滑动条：数量 10–20000、大小 0.10×–2.0×、速度 1–6 m/s。
+
+![手机参数滑动条](assets/unity_device_sliders.png)
+
 ![手机可走区覆盖](assets/unity_device_walkable.png)
 
 ![手机网格参数面板](assets/unity_device_grid_panel.png)
@@ -501,6 +505,10 @@ Samsung SM-A166P（Android 15，IL2CPP，arm64）实测：
 - **30 Hz 预算 33.3 ms**：**约 20,000 单位**（20k p95 31.4 ms）；22k p95 36.3 ms 已超预算，建议 16k–18k 留余量。
 - 所有档位 `allocBytes=0`，核心 tick 仍然是零托管分配。
 - 这是**合成平地、无渲染、无网络**的上限；原地图的窄口/出生区/目标车位会先限制实际数量。1000 人地图 Demo 的渲染是 `DrawMeshInstanced` 一个批次，不参与这个上限。
+
+**真实地图高密度不是同一个场景**：把手机 Demo 调到 **19,550 人 / 0.10×**（半径 0.035 m）时，出生区能放下，但重烘约 **1.65 s**，稳态 tick **~117 ms**、FPS **~2.5**。原因是 2 万单位被压进原地图的出生平台，局部密度远高于合成平地的稀疏队形；这不是寻路核心在 20k 稀疏场景下的 27.5 ms。要交互跑 20k，需要把出生铺到更大区域/分簇，或对高密度区域做额外 LOD/调度。
+
+![真实地图 20k 高密度容量测试](assets/unity_device_20k.png)
 
 ![手机极限测试入口与完成状态](assets/unity_device_stress.png)
 

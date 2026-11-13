@@ -37,7 +37,7 @@ namespace CrowdNav.Unity
         public int targetFps = 0; // 0 = unlimited / platform max
 
         [Header("Crowd parameters")]
-        [Range(0.5f, 2f)] public float unitSize = 1f;
+        [Range(0.1f, 2f)] public float unitSize = 1f;
         [Range(1f, 6f)] public float moveSpeed = 3.1f;
 
         [Header("Grid debug / rebake")]
@@ -134,8 +134,8 @@ namespace CrowdNav.Unity
             QualitySettings.vSyncCount = 0;
             _gc0Start = GC.CollectionCount(0);
             _simSpeed = Mathf.Clamp(playbackSpeed, 1, 4);
-            _agentRadius = 0.35f * Mathf.Clamp(unitSize, 0.5f, 2f);
-            _slotSpacing = Mathf.Max(0.45f, 2f * _agentRadius + 0.10f);
+            _agentRadius = 0.35f * Mathf.Clamp(unitSize, 0.1f, 2f);
+            _slotSpacing = Mathf.Max(0.20f, 2f * _agentRadius + 0.10f);
             _renderScale = _agentRadius / 0.35f;
             _goalXz = Vector2.zero;
             RenderSettings.ambientLight = new Color(0.45f, 0.47f, 0.52f);
@@ -262,7 +262,7 @@ namespace CrowdNav.Unity
 
         private void BuildSpawns()
         {
-            _count = Mathf.Clamp(unitCount, 10, 1000);
+            _count = Mathf.Clamp(unitCount, 10, 20000);
             float spacing = Mathf.Max(0.88f * _renderScale, 2f * _agentRadius + 0.10f);
             float spawnRadius = Mathf.Max(_map.SpawnRadius, 0.62f * Mathf.Sqrt(_count) * spacing);
             var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -374,7 +374,7 @@ namespace CrowdNav.Unity
         private bool IsGuiTop(Vector2 screenPoint)
         {
             float guiY = Screen.height - screenPoint.y;
-            return guiY < (showGridPanel ? 720f : 470f) || guiY > Screen.height - 70f; // HUD/controls/panel/legend
+            return guiY < (showGridPanel ? 820f : 540f) || guiY > Screen.height - 70f; // HUD/controls/panel/legend
         }
 
         private void HandlePointer()
@@ -709,19 +709,45 @@ namespace CrowdNav.Unity
             if (GUI.Button(new Rect(1900, y, 300, 80), "重置视角")) ResetView();
 
             float y2 = 280;
-            if (GUI.Button(new Rect(24, y2, 260, 70), _labelCount)) CycleCount();
-            if (GUI.Button(new Rect(300, y2, 260, 70), _labelSize)) CycleSize();
-            if (GUI.Button(new Rect(576, y2, 260, 70), _labelSpeed)) CycleSpeed();
-            if (GUI.Button(new Rect(852, y2, 300, 70), "应用参数/重烘")) ApplyParameters();
-            if (GUI.Button(new Rect(1170, y2, 260, 70), _labelFps)) CycleTargetFps();
-            if (GUI.Button(new Rect(1450, y2, 260, 70), "网格参数")) showGridPanel = !showGridPanel;
-            if (GUI.Button(new Rect(1720, y2, 260, 70), _labelWalkable)) ToggleWalkable();
-            if (GUI.Button(new Rect(2000, y2, 320, 70), "极限测试")) StartCoroutine(RunStressTest());
+            GUI.Label(new Rect(24, y2, 600, 30), "数量 " + unitCount);
+            int newCount = Mathf.RoundToInt(GUI.HorizontalSlider(
+                new Rect(24, y2 + 30, 600, 28), unitCount, 10f, 20000f));
+            if (newCount != unitCount)
+            {
+                unitCount = newCount;
+                RefreshUiLabels();
+            }
+
+            GUI.Label(new Rect(640, y2, 420, 30), "大小 x" + unitSize.ToString("0.00"));
+            float newSize = GUI.HorizontalSlider(
+                new Rect(640, y2 + 30, 420, 28), unitSize, 0.1f, 2f);
+            if (Mathf.Abs(newSize - unitSize) > 0.001f)
+            {
+                unitSize = newSize;
+                RefreshUiLabels();
+            }
+
+            GUI.Label(new Rect(1080, y2, 360, 30), "速度 " + moveSpeed.ToString("0.0") + " m/s");
+            float newSpeed = GUI.HorizontalSlider(
+                new Rect(1080, y2 + 30, 360, 28), moveSpeed, 1f, 6f);
+            if (Mathf.Abs(newSpeed - moveSpeed) > 0.001f)
+            {
+                moveSpeed = newSpeed;
+                RefreshUiLabels();
+            }
+
+            if (GUI.Button(new Rect(1460, y2, 300, 70), "应用参数/重烘")) ApplyParameters();
+            if (GUI.Button(new Rect(1780, y2, 240, 70), _labelFps)) CycleTargetFps();
+            if (GUI.Button(new Rect(2040, y2, 240, 70), "网格参数")) showGridPanel = !showGridPanel;
+
+            float y3 = 360;
+            if (GUI.Button(new Rect(24, y3, 260, 60), _labelWalkable)) ToggleWalkable();
+            if (GUI.Button(new Rect(300, y3, 260, 60), "极限测试")) StartCoroutine(RunStressTest());
 
             if (showGridPanel) DrawGridPanel();
 
-            GUI.Label(new Rect(24, 360, 1400, 50), _status, GUI.skin.label);
-            GUI.Label(new Rect(24, 405, 2200, 60),
+            GUI.Label(new Rect(24, 435, 1100, 50), _status, GUI.skin.label);
+            GUI.Label(new Rect(24, 480, 2200, 60),
                 "拖动=旋转  双指/中键=平移  捏合/滚轮=缩放  轻点地面=目标  播放倍速只加 tick 频率",
                 GUI.skin.label);
 
@@ -734,7 +760,7 @@ namespace CrowdNav.Unity
 
         private void DrawGridPanel()
         {
-            var r = new Rect(1160, 360, 1120, 350);
+            var r = new Rect(1160, 450, 1120, 350);
             GUI.Box(r, "网格参数（改完点应用并重烘）");
             float x = r.x + 24f;
             float y = r.y + 48f;
@@ -838,12 +864,12 @@ namespace CrowdNav.Unity
         {
             try
             {
-                unitCount = Mathf.Clamp(unitCount, 10, 1000);
-                unitSize = Mathf.Clamp(unitSize, 0.5f, 2f);
+                unitCount = Mathf.Clamp(unitCount, 10, 20000);
+                unitSize = Mathf.Clamp(unitSize, 0.1f, 2f);
                 moveSpeed = Mathf.Clamp(moveSpeed, 1f, 6f);
                 _agentRadius = 0.35f * unitSize;
                 if (followUnitRadius) bakeRadius = _agentRadius;
-                _slotSpacing = Mathf.Max(0.45f, 2f * _agentRadius + 0.10f);
+                _slotSpacing = Mathf.Max(0.20f, 2f * _agentRadius + 0.10f);
                 _renderScale = _agentRadius / 0.35f;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 _map = CrowdMap.LoadFromText(mapAsset.text, EffectiveBakeRadius, mirrorMapX,
@@ -857,6 +883,7 @@ namespace CrowdNav.Unity
                     _count, unitSize, EffectiveBakeRadius, maxSlope, clearanceMargin, moveSpeed,
                     sw.Elapsed.TotalMilliseconds);
                 if (_count < unitCount) _status += "（出生区只放下 " + _count + "/" + unitCount + "）";
+                if (_count > 10000) _status += "（真实地图高密度：帧率可能很低）";
                 RefreshUiLabels();
                 Debug.Log("CROWD PARAMS " + _status);
             }
