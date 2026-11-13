@@ -1,0 +1,19 @@
+{
+    "name": "CrowdNav.App",
+    "rootNamespace": "CrowdNav.Unity",
+    "references": [
+        "CrowdNav.Core",
+        "CrowdNav.Legacy",
+        "Unity.Collections",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

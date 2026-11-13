@@ -4,6 +4,39 @@
 
 > **先看这里：** [GitHub Pages 项目主页](https://jeason1997.github.io/cluster-pathfinding-algorithm/) · [GitHub 仓库](https://github.com/jeason1997/cluster-pathfinding-algorithm) · [自动测试报告](docs/测试报告.md) · [方案设计](docs/方案设计与实现.md) · [本机交互演示](http://127.0.0.1:8799/)
 
+## 新增：Unity + 低端安卓的 1000 人 Jobs/Burst 核心
+
+Unity 工程在 [`Unity/CrowdNav.Unity`](Unity/CrowdNav.Unity/README.md)，可以直接用 Unity 6000.3.18f1 打开。两条可切换后端：旧 OOP 核心（基线）和新 SoA/NativeArray + Burst Job 核心。
+
+1000 人、`neicheng_walk01` 地图、Unity Editor（Mono + Burst）实测：
+
+| 指标 | 旧 OOP 核心 | 新 Jobs/Burst 核心 |
+|---|---:|---:|
+| 30 Hz 单帧 mean / p95 | 28.70 / 33.24 ms | **1.61 / 1.96 ms** |
+| 60 Hz 单帧 mean / p95 | 28.79 / 32.81 ms | **1.56 / 1.91 ms** |
+| 点击目标（主线程） | 843.7 ms | **0.72 ms** |
+| 重叠 / 最小间距 | — | **0 / 0.795 m** |
+
+真机 Samsung SM-A166P（Android 15 / arm64 / Mali-G57，IL2CPP Release）1000 人：
+
+| 指标 | Legacy 30 | Legacy 60 | Jobs 30 | Jobs 60 |
+|---|---:|---:|---:|---:|
+| 单帧 mean / p95 | 7.39 / 7.77 ms | 7.35 / 7.71 ms | **1.53 / 1.62 ms** | **1.51 / 1.60 ms** |
+| 点击目标 | 171 ms | 171 ms | **0.14 ms** | **0.07 ms** |
+| 堆增长（300/600 tick） | 84 KB | 76 KB | **0 KB** | **0 KB** |
+
+原生 1080p 下 HUD 稳定 **60 FPS**。Samsung A16 面板是 90 Hz，60 帧目标在 90 Hz vsync 下会被量化成 45；工程在 Android 启动时用 JNI 把窗口切到 60 Hz 显示模式（mode 2），再保持 60 帧目标。Jobs 仿真在 60 Hz 下只占 2–3 ms。交互 Demo 默认 **Jobs 30 Hz + 播放 x4**，支持点地面设目标、单指/左键旋转、双指/中键平移、捏合/滚轮缩放；触摸和鼠标的旋转/平移符号是分开实现的。
+
+- 新核心：热状态全部 `NativeArray` SoA；空间哈希、ORCA 邻域/LP、顺序提交、路径、到达/整队都是 Burst Job；1000 人没有 `Agent` 托管对象。
+- 30 Hz 逻辑 + 客户端插值（`PrevPosition → Position`），可切 60 Hz；渲染是一个 1000 实例的 `DrawMeshInstanced`，不是 1000 个 GameObject。
+- 单位颜色和 Web 版一致（蓝=移动、绿=到达、红=不可达、黄=让路），GPU instancing per-instance color，一个 draw call。
+- 参数面板支持数量 100–1000、单位大小 0.5×–2.0×、移动速度 2–6 m/s、播放 x1/x2/x4、FPS 目标 60/90/30；改完点“应用参数”重建。
+- 地图默认做 X 镜像，和 Unity 导入 FBX 的左右方向一致；可在 Inspector 关掉 `mirrorMapX`。
+- 安卓构建脚本直接出 IL2CPP/ARM64 APK；设备自动基准会把 `CROWD_BENCH` 写进 logcat。
+- 详细设计、GC 说明、行为边界见 [docs/Unity-Jobs-Burst优化.md](docs/Unity-Jobs-Burst优化.md)；多层导航的 NavMesh/Recast 评估见 [docs/NavMesh-Recast评估.md](docs/NavMesh-Recast评估.md)。
+
+> 注意：1000 人在窄口/高密度下走得慢是原有 ORCA 行为（旧核心同样慢）；本轮收益是**同样的行为下单帧成本降一个数量级**。Courtesy yield（到达单位让路）还没有 1:1 移植，目标区压实会比旧核心慢，是下一阶段工作。
+
 ## 新增：实时点击测试（RTS 式）
 
 现在可以直接在浏览器里点击地面下达目的地，整队实时走过去；单位数量用滑块/输入框设置，支持 10–1000。
@@ -158,10 +191,15 @@ src/CrowdSim.Interactive/    实时 Demo：ASP.NET Core WebSocket + Three.js 3D/
   wwwroot/                   3D/2D 页面、Three.js、交互
 tests/CrowdNav.Tests/        无第三方测试框架的自动验收测试
 visualizer/                  预录 2D 回放（本地文件直接打开）
-docs/                        方案设计、测试报告、Unity 接入
-Unity/CrowdRunner.cs         Unity MonoBehaviour 接入示例（未在 Unity 工程中编译）
-out/                         测试报告、关键帧、3D 图、GIF、实时测试截图
-tools/                       可视化、报告、WebSocket/CDP 测试、FBX→高度场脚本
+Unity/CrowdNav.Unity/        Unity 6 工程（Assets/ProjectSettings/Packages）
+  Assets/CrowdNav.Core/      新核心：SoA NativeArray + Burst Job
+  Assets/CrowdNav.Legacy/    旧 OOP 核心（基线/对照）
+  Assets/CrowdNav.App/       手机 Demo、地图加载、设备基准
+  Assets/Editor/             场景/APK 构建、基准 Runner（只在 Editor 编译）
+  Assets/Tests/              Unity EditMode 测试（重叠/确定性/零分配）
+docs/                        方案设计、测试报告、Unity 接入、Jobs/Burst 优化、NavMesh 评估
+out/                         测试报告、关键帧、3D 图、GIF、实时测试截图、设备截图
+tools/                       可视化、报告、WebSocket/CDP 测试、FBX→高度场、Unity 构建脚本
 run-interactive.cmd          启动实时点击 Demo
 ```
 
@@ -178,15 +216,17 @@ run-interactive.cmd          启动实时点击 Demo
 
 ## Unity 接入
 
-核心是纯 C#，不引用 `UnityEngine`。把 `src/CrowdNav/*.cs` 拷入 Unity 的 `Assets/CrowdNav/` 即可。`Unity/CrowdRunner.cs` 给出了：
+Unity 6 工程在 [`Unity/CrowdNav.Unity`](Unity/CrowdNav.Unity/README.md)，已经实际编译并在 Samsung SM-A166P 上跑过 IL2CPP/ARM64：
 
-- 从 `Terrain.SampleHeight` 构建高度场；
-- 把圆形岩体/障碍标记成 `CircleObstacle`；
-- 鼠标点击转成 `Vec2` 目标；
-- 固定步长推进仿真；
-- 把 `Agent.Position` 和地形高度同步到 `Transform`。
+- **新核心** `Assets/CrowdNav.Core`：热状态全部 `NativeArray`，空间哈希、ORCA、提交、路径、到达/整队都是 Burst Job；1000 人 30 Hz 单帧 p95 设备 1.65 ms、Editor 1.96 ms。
+- **旧核心** `Assets/CrowdNav.Legacy`：原 `src/CrowdNav` 原样保留，用于同场景基线对照（设备 30 Hz p95 7.78 ms）。
+- **交互 Demo**：轻点地面下达目标；单指/左键拖动旋转；双指/中键拖动平移；捏合/滚轮缩放；1x/2x/4x 播放倍速；默认 1000 人、Jobs 30 Hz、x4。
+- **设备基准**：APK 内按钮依次跑 Legacy/Jobs × 30/60 Hz，输出 `CROWD_BENCH` 到 logcat 和 `crowd_bench.json`。
+- 旧 `Unity/CrowdRunner.cs` 仍作为“只拷贝旧核心”的最小接入示例保留；新的推荐接入见 [`docs/Unity接入指南.md`](docs/Unity接入指南.md) 的 A 节。
 
-详细步骤和性能建议见 [docs/Unity接入指南.md](docs/Unity接入指南.md)。
+性能数字、GC 说明、行为边界见 [`docs/Unity-Jobs-Burst优化.md`](docs/Unity-Jobs-Burst优化.md)；多层 NavMesh/Recast 方案见 [`docs/NavMesh-Recast评估.md`](docs/NavMesh-Recast评估.md)。
+
+> 构建 Android 时注意：Unity 的 Android 工具不接受含中文的工程路径。仓库根目录已改为英文 `cluster-pathfinding-algorithm`；`tools/build_unity_android.ps1` 也会在检测到非 ASCII 路径时自动复制到 ASCII 临时目录构建。
 
 ## 必须说明的边界
 
@@ -194,7 +234,7 @@ run-interactive.cmd          启动实时点击 Demo
 - 单位是水平圆盘/胶囊；不是带跳跃、飞行、攀爬的完整 3D 体。
 - 当前静态障碍是圆形 + 高度场坡度；没有动态障碍、门、电梯。
 - 极端密度或死胡同仍可能形成局部死锁；本实现用让路、重规划和压实来降低概率，不宣称对任意几何体都能在有限时间内完成。
-- 这是原型/可移植核心，不是 Unity 成品工程；Unity 示例未编译。生产环境大规模地图建议把路径层替换为 Recast/Detour，保留本项目的落点与“无推挤”提交层。
+- 这是原型/可移植核心 + 一个真实可跑的 Unity 工程，但不是完整商业游戏工程。新 Jobs 核心的 courtesy yield 尚未 1:1 移植，1000 人高密度目标区压实比旧核心慢；生产环境大规模/多层地图建议按 [`docs/NavMesh-Recast评估.md`](docs/NavMesh-Recast评估.md) 替换路径层，保留 ORCA/落点/提交层。
 
 ## 第三方
 

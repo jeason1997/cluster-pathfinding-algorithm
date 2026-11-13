@@ -8,3 +8,19 @@ out/*.csv
 out/interactive-server/
 out/chrome-*/
 out/chrome_cdp.pid
+
+# Unity batch logs
+out/unity/*.log
+out/unity/*.txt
+out/unity/*.json
+Unity/CrowdNav.Unity/Library/
+Unity/CrowdNav.Unity/Temp/
+Unity/CrowdNav.Unity/Logs/
+Unity/CrowdNav.Unity/Builds/
+
+out/unity/*.apk
+out/unity/*.png
+
+out/unity/*.xml
+out/unity/*.apk
+out/unity/*.png

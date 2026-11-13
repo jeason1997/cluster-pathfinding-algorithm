@@ -1,0 +1,22 @@
+{
+    "name": "CrowdNav.Editor",
+    "rootNamespace": "CrowdNav.Unity.EditorTools",
+    "references": [
+        "CrowdNav.Core",
+        "CrowdNav.App",
+        "CrowdNav.Legacy",
+        "Unity.Collections",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

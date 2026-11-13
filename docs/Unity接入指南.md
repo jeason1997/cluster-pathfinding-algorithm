@@ -1,5 +1,117 @@
 # Unity 接入指南
 
+> **2026 更新：Unity 6 Jobs/Burst 工程已经存在。**
+>
+> - 工程：[`Unity/CrowdNav.Unity`](../Unity/CrowdNav.Unity/README.md)
+> - 新核心：`Assets/CrowdNav.Core`（`CrowdNav.Hpc`，SoA `NativeArray` + Burst Job）
+> - 旧核心：`Assets/CrowdNav.Legacy`（本文件下半部分的 `src/CrowdNav`，用于基线/对照）
+> - 实测与设计：[`Unity-Jobs-Burst优化.md`](Unity-Jobs-Burst优化.md)
+> - 多层导航评估：[`NavMesh-Recast评估.md`](NavMesh-Recast评估.md)
+>
+> 新接入请直接用新核心；下面保留旧核心的说明，便于维护已有代码和对照测试。
+
+## A. 新核心最小接入（推荐）
+
+### A.1 创建网格
+
+```csharp
+// heights：长度 width*height，行主序 z*width+x
+// walkableMask：true = 允许烘焙（不含坡度/净空，CrowdGridData 会再算）
+CrowdGridData grid = CrowdGridData.Build(
+    heights, walkableMask, width, height, cellSize, originX, originZ,
+    agentRadius: 0.35f, maxSlopeDegrees: 42f, clearanceMargin: 0.04f);
+```
+
+- 网格、净空、坡度只在换图/换单位半径时重建；不要每帧 Bake。
+- Unity 适配层推荐用 `Terrain.SampleHeight` 填 `heights`，用碰撞体/寻路层填 `walkableMask`，把圆形岩石/树桩栅格化成 false。
+- 多层/桥洞先看 [`NavMesh-Recast评估.md`](NavMesh-Recast评估.md)，不要直接把高度场用在多层图。
+
+### A.2 创建仿真
+
+```csharp
+var spawns = new NativeArray<float2>(count, Allocator.Persistent);
+for (int i = 0; i < count; i++)
+    spawns[i] = new float2(spawnX[i], spawnZ[i]);
+
+var config = CrowdConfig.Default;
+config.GoalCenterAttraction = true;   // 开阔目标：所有人朝点击点，整队压实
+config.SlotSpacing = 0.8f;
+config.MaxNeighbors = 14;
+config.PredictedCommit = false;      // 与旧核心对照时保持 false；可试 true
+
+var sim = new CrowdNavSimulation(grid, config, spawns, goal, false);
+sim.SetGoal(goal);                   // 建车位 + 后台建流场，点击帧很便宜
+```
+
+- `spawns` 必须互不重叠（至少 2×半径 + margin）；可以在编辑器/加载时用六边形队形生成。
+- `CrowdNavSimulation` 是非线程安全的“主线程调度器”：每帧只在主线程调用 `Tick`。
+- 所有状态在 `sim.Agents` 的 `NativeArray` 里；`sim.Agents.Count` 是有效数量。
+
+### A.3 30 Hz 逻辑 + 插值
+
+```csharp
+float accumulator;
+const float dt = 1f / 30f;
+
+void Update()
+{
+    accumulator += Mathf.Min(0.15f, Time.unscaledDeltaTime);
+    int steps = 0;
+    while (accumulator >= dt && steps < 2)
+    {
+        sim.Tick(dt);
+        accumulator -= dt;
+        steps++;
+    }
+    float alpha = Mathf.Clamp01(accumulator / dt);
+
+    for (int i = 0; i < sim.Agents.Count; i++)
+    {
+        float2 p = math.lerp(sim.Agents.PrevPosition[i], sim.Agents.Position[i], alpha);
+        float y = grid.Grid.SampleHeight(p.x, p.y);
+        // 用 p.x / y / p.y 更新实例矩阵或 Transform
+    }
+}
+```
+
+- `PrevPosition` 在每次 `Tick` 开头由 `CrowdHashBuildJob` 复制，插值只读，不写回仿真。
+- 不要用可变 `Time.deltaTime` 直接 `Tick`；固定步长才能让 ORCA/制动/提交可复现。
+- 最多追 2 步，避免卡顿后“补帧螺旋”。
+
+### A.4 渲染层建议
+
+- 1000 个单位不要 1000 个 `GameObject` + `Transform`；用 `Graphics.DrawMeshInstanced`（一次 ≤1023）或 `RenderMeshInstanced`。
+- 单位 Y 从 `grid.Grid.SampleHeight(p.x, p.y)` 取；不要把 `Rigidbody`/`CharacterController` 写回 `Agents.Position`。
+- 朝向用 `sim.Agents.Facing[i]`（弧度，XZ 平面）或速度方向。
+- HUD/字符串更新放到 tick 外（例如 4 Hz），别把 `Debug.Log` 放进 `Tick`。
+
+### A.5 安卓设备
+
+```powershell
+# 交互 APK
+& Unity.exe -batchmode -nographics -projectPath Unity/CrowdNav.Unity `
+  -executeMethod CrowdNav.Unity.EditorTools.UnityBuilder.BuildAndroid `
+  -logFile out/unity/android_build.log
+
+# 自动基准 APK（CROWD_AUTOBENCH）
+& Unity.exe -batchmode -nographics -projectPath Unity/CrowdNav.Unity `
+  -executeMethod CrowdNav.Unity.EditorTools.UnityBuilder.BuildAndroidBench `
+  -logFile out/unity/android_bench_build.log
+
+adb install -r Unity/CrowdNav.Unity/Builds/Android/CrowdNavDemo.apk
+adb logcat -c
+adb shell monkey -p com.crowdnav.demo -c android.intent.category.LAUNCHER 1
+adb logcat -d -s Unity:I
+```
+
+- PlayerSettings 由构建脚本设置：IL2CPP、ARM64、Release、Low stripping、OpenGLES3、横屏、60 fps target、vSync off。
+- 设备基准会写 `CROWD_BENCH ...` 到 logcat，并写 `.../files/crowd_bench.json`。
+- 手机长时间跑 1000 人基线注意热降频；先跑 60 s 再采稳态。
+
+---
+
+## B. 旧核心接入（保留）
+
 核心库 `src/CrowdNav` 不引用 `UnityEngine`，目标框架是 `netstandard2.1`，可以直接把 `.cs` 文件拷入 Unity 工程。下面是推荐接入方式。
 
 > 注意：`Unity/CrowdRunner.cs` 是样板，未在 Unity 工程里编译；不同 Unity 版本的 API 可能需要微调。仿真核心已经在本仓库的 .NET 测试中验证。
