@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>集群寻路算法 · Crowd Navigation</title>
+  <style>
+    :root { color-scheme: dark; --bg:#08110d; --panel:#101b17; --line:#24352e; --text:#e7f0eb; --muted:#8ca39a; --accent:#3ddc84; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:radial-gradient(900px 500px at 70% -10%, #173329 0%, var(--bg) 60%); color:var(--text); font:16px/1.65 "Segoe UI", "Microsoft YaHei", sans-serif; }
+    main { max-width:1080px; margin:0 auto; padding:56px 24px 80px; }
+    .eyebrow { color:var(--accent); letter-spacing:.18em; font-size:12px; font-weight:700; }
+    h1 { font-size:clamp(34px,6vw,64px); line-height:1.08; margin:14px 0 18px; }
+    h2 { font-size:24px; margin:0 0 12px; }
+    p { color:#c8d7d0; margin:0 0 14px; }
+    .lead { font-size:18px; max-width:760px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; margin:28px 0; }
+    .card { background:linear-gradient(180deg,#13221c,#0d1713); border:1px solid var(--line); border-radius:14px; padding:18px; }
+    .card b { color:var(--accent); display:block; margin-bottom:6px; }
+    .muted { color:var(--muted); }
+    .actions { display:flex; flex-wrap:wrap; gap:12px; margin:26px 0 34px; }
+    a.button { display:inline-block; padding:11px 18px; border-radius:9px; background:var(--accent); color:#042014; font-weight:700; text-decoration:none; }
+    a.ghost { background:transparent; border:1px solid var(--line); color:var(--text); }
+    img { width:100%; height:auto; display:block; border-radius:12px; border:1px solid var(--line); }
+    figure { margin:0 0 26px; }
+    figcaption { color:var(--muted); font-size:13px; margin-top:8px; }
+    .shots { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    code, pre { background:#0a1510; border:1px solid var(--line); border-radius:8px; color:#bff3d5; }
+    code { padding:2px 6px; }
+    pre { padding:14px; overflow:auto; }
+    .notice { border-left:3px solid #ffb547; padding:12px 16px; background:#1b190d; color:#f4dfb5; border-radius:0 8px 8px 0; }
+    footer { border-top:1px solid var(--line); margin-top:40px; padding-top:18px; color:var(--muted); font-size:13px; }
+    @media (max-width:700px) { .shots { grid-template-columns:1fr; } main { padding-top:36px; } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">RTS · CROWD NAVIGATION · 2D / 3D</div>
+  <h1>集群寻路算法</h1>
+  <p class="lead">面向 100–1000 个单位的实时集群寻路原型：无重叠、无推挤，前排让行，整队沿路径通过斜坡和窄通道，并支持点击目标、2D/3D 视角和单位尺寸/速度调整。</p>
+
+  <div class="actions">
+    <a class="button" href="https://github.com/jeason1997/cluster-pathfinding-algorithm">查看 GitHub 仓库</a>
+    <a class="button ghost" href="#run">本机运行 Demo</a>
+  </div>
+
+  <div class="grid">
+    <div class="card"><b>局部避让</b>ORCA 互惠避让 + 顺序提交，单位不会互相推挤或重叠。</div>
+    <div class="card"><b>全局路径</b>A* + 视线平滑 + 分帧规划，能通过斜坡、门洞和窄通道。</div>
+    <div class="card"><b>目标停车</b>目标点直接作为终点，单位持续向目标靠；拥挤时再停在人群边缘。</div>
+    <div class="card"><b>实时交互</b>点击下达目标，支持 120/300/460/1000 单位、2D/3D、缩放/平移/跟随。</div>
+  </div>
+
+  <h2>效果截图</h2>
+  <figure>
+    <img src="assets/neicheng_3d.png" alt="导入 FBX 地图 3D 视角">
+    <figcaption>导入 FBX 原始三角面地图，3D 透视。高度与水平统一缩放，台阶不会被压扁。</figcaption>
+  </figure>
+  <div class="shots">
+    <figure>
+      <img src="assets/neicheng_2d.png" alt="2D 正交视角">
+      <figcaption>2D 正交俯视，适合检查路径和车位。</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/neicheng_units.png" alt="单位大小和速度调节">
+      <figcaption>单位大小 0.5×–2.0×、速度 1–6 m/s 可调。</figcaption>
+    </figure>
+  </div>
+  <figure>
+    <img src="assets/crowd.gif" alt="集群寻路过程">
+    <figcaption>300 人集群寻路过程（GIF）。</figcaption>
+  </figure>
+
+  <h2 id="run">本机运行</h2>
+  <div class="notice">GitHub Pages 只能托管静态页面，不能运行 .NET WebSocket 服务；实时集群 Demo 需要在本机启动。</div>
+  <pre><code>git clone https://github.com/jeason1997/cluster-pathfinding-algorithm.git
+cd cluster-pathfinding-algorithm
+dotnet run --project src/CrowdSim.Interactive/CrowdSim.Interactive.csproj -c Release --no-launch-profile
+# 浏览器打开 http://127.0.0.1:8799/</code></pre>
+  <p class="muted">Windows 也可以直接双击 <code>run-interactive.cmd</code>。</p>
+
+  <h2>操作</h2>
+  <div class="grid">
+    <div class="card"><b>左键点地面</b>设置目的地。</div>
+    <div class="card"><b>左键拖拽 / 中键拖拽</b>3D 旋转 / 平移；2D 中左键都平移。</div>
+    <div class="card"><b>滚轮 / 点击单位</b>缩放 / 镜头跟随。</div>
+    <div class="card"><b>2D / 3D</b>右上角切换，快捷键 1 / 2。</div>
+  </div>
+
+  <footer>
+    集群寻路算法 · <a href="https://github.com/jeason1997/cluster-pathfinding-algorithm" style="color:#8ca39a">jeason1997/cluster-pathfinding-algorithm</a>
+  </footer>
+</main>
+</body>
+</html>
