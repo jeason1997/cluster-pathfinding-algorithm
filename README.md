@@ -223,6 +223,7 @@ Unity 6 工程在 [`Unity/CrowdNav.Unity`](Unity/CrowdNav.Unity/README.md)，已
 - **交互 Demo**：轻点地面下达目标；单指/左键拖动旋转；双指/中键拖动平移；捏合/滚轮缩放；1x/2x/4x 播放倍速；默认 1000 人、Jobs 30 Hz、x4；单位按状态着色（蓝=移动/绿=到达/红=不可达/黄=让路）。
 - **参数面板**：数量 100–1000、大小 0.5×–2.0×、速度 2–6 m/s、FPS 目标 不限/90/60/30；应用时重建净空/出生队形/车位/仿真。
 - **可走区/网格参数**：手机界面可开关青色可走区覆盖；`网格参数` 面板可调烘焙半径、最大坡度、净空余量，点“应用并重烘”生效（约 22–35 ms，重烘会重置人群）。
+- **极限测试**：合成平地、不渲染单位，测核心 tick；A16 上 10k 单位 60 Hz p95 14.8 ms、20k 单位 30 Hz p95 31.4 ms，所有档位零托管分配。详见 [docs/Unity-Jobs-Burst优化.md](docs/Unity-Jobs-Burst优化.md) §13。
 - **HUD**：`HEAP` 是托管堆总量、`GC0` 是启动以来第 0 代 GC 次数（已减基线），不是每帧分配量；仿真 tick 零托管分配（设备 `allocPerTick=0`、Jobs `heapDelta=0`），HUD/OnGUI 每 1 s 的字符串更新不计入 tick。
 - **Web 与 Unity 不共用同一份源码**：Web 用 `src/CrowdNav` 的 OOP 核心；Unity 新核心是 `Assets/CrowdNav.Core`，`Assets/CrowdNav.Legacy` 只是旧核心快照。改一边不会自动改另一边；旧核心可用 `tools/sync_legacy_unity.ps1` 单向同步。
 - **设备基准**：APK 内按钮依次跑 Legacy/Jobs × 30/60 Hz，输出 `CROWD_BENCH` 到 logcat 和 `crowd_bench.json`；A16 默认不限帧、HUD 90 FPS，FPS 按钮可切不限/90/60/30。

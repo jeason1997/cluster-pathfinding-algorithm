@@ -58,6 +58,8 @@ namespace CrowdNav.Unity
         private string _labelPlay = "";
         private string _labelWalkable = "";
         private int _gc0Start;
+        private bool _stressRunning;
+        private string _stressStatus = "";
 
         private CrowdMap _map;
         private CrowdSimulation _legacy;
@@ -573,7 +575,7 @@ namespace CrowdNav.Unity
 
         private void Update()
         {
-            if (!_started || _benchRunning) return;
+            if (!_started || _benchRunning || _stressRunning) return;
             _fps = Mathf.Lerp(_fps, 1f / Mathf.Max(1e-4f, Time.unscaledDeltaTime), 0.08f);
             HandlePointer();
             UpdateCameraTransform();
@@ -686,6 +688,11 @@ namespace CrowdNav.Unity
                 GUI.Label(new Rect(24, 180, 1800, 80), _benchMessage, _labelStyle);
                 return;
             }
+            if (_stressRunning)
+            {
+                GUI.Label(new Rect(24, 180, 2200, 100), _stressStatus, _labelStyle);
+                return;
+            }
             float y = 190;
             if (GUI.Button(new Rect(24, y, 240, 80), "Legacy 30")) RestartAndGoal(SimMode.Legacy, 30);
             if (GUI.Button(new Rect(280, y, 240, 80), "Legacy 60")) RestartAndGoal(SimMode.Legacy, 60);
@@ -709,6 +716,7 @@ namespace CrowdNav.Unity
             if (GUI.Button(new Rect(1170, y2, 260, 70), _labelFps)) CycleTargetFps();
             if (GUI.Button(new Rect(1450, y2, 260, 70), "网格参数")) showGridPanel = !showGridPanel;
             if (GUI.Button(new Rect(1720, y2, 260, 70), _labelWalkable)) ToggleWalkable();
+            if (GUI.Button(new Rect(2000, y2, 320, 70), "极限测试")) StartCoroutine(RunStressTest());
 
             if (showGridPanel) DrawGridPanel();
 
@@ -863,6 +871,113 @@ namespace CrowdNav.Unity
         {
             Restart(mode, hz);
             SetGoalNow();
+        }
+
+        private struct StressResult
+        {
+            public int Units;
+            public double MeanMs;
+            public double P95Ms;
+            public double MaxMs;
+            public long AllocBytes;
+        }
+
+        private IEnumerator RunStressTest()
+        {
+            if (_stressRunning) yield break;
+            _stressRunning = true;
+            int[] counts = { 1000, 2000, 4000, 8000, 10000, 12000, 16000, 20000, 24000, 32000 };
+            for (int i = 0; i < counts.Length; i++)
+            {
+                int count = counts[i];
+                _stressStatus = string.Format(CultureInfo.InvariantCulture,
+                    "极限测试 {0}/{1}：{2} 单位（不渲染）...", i + 1, counts.Length, count);
+                yield return null;
+
+                StressResult result = RunStressCount(count);
+                Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                    "CROWD_STRESS units={0} meanMs={1:0.00} p95Ms={2:0.00} maxMs={3:0.00} allocBytes={4}",
+                    result.Units, result.MeanMs, result.P95Ms, result.MaxMs, result.AllocBytes));
+
+                _stressStatus = string.Format(CultureInfo.InvariantCulture,
+                    "极限测试 {0}/{1}：{2} 单位 mean {3:0.00} / p95 {4:0.00} ms",
+                    i + 1, counts.Length, count, result.MeanMs, result.P95Ms);
+                yield return null;
+            }
+            _stressRunning = false;
+            _status = "极限测试完成，结果见 CROWD_STRESS 日志";
+            Debug.Log("CROWD_STRESS_DONE");
+        }
+
+        private StressResult RunStressCount(int count)
+        {
+            const int width = 384;
+            const int height = 256;
+            const float cell = 0.8f;
+            float[] heights = new float[width * height];
+            bool[] walkable = new bool[width * height];
+            for (int i = 0; i < walkable.Length; i++) walkable[i] = true;
+
+            using (var grid = CrowdGridData.Build(heights, walkable, width, height, cell, 0f, 0f,
+                       0.35f, 42f, 0.04f))
+            {
+                int side = Mathf.CeilToInt(Mathf.Sqrt(count));
+                const float spacing = 0.85f;
+                var spawns = new NativeArray<float2>(count, Allocator.Persistent);
+                for (int i = 0; i < count; i++)
+                {
+                    int row = i / side;
+                    int col = i % side;
+                    spawns[i] = new float2(10f + col * spacing, 10f + row * spacing);
+                }
+
+                var config = CrowdConfig.Default;
+                config.AgentRadius = 0.35f;
+                config.MaxSpeed = 3.1f;
+                config.MaxAcceleration = 15f;
+                config.SlotSpacing = 0.8f;
+                config.GoalCenterAttraction = true;
+                config.PredictedCommit = false;
+                config.MaxNeighbors = 14;
+                config.NeighborDistance = 2f;
+
+                var sim = new CrowdNavSimulation(grid, config, spawns, new float2(260f, 100f), true);
+                try
+                {
+                    sim.CompleteFlowNow();
+                    for (int i = 0; i < 30; i++) sim.Tick(1f / 30f);
+
+                    long alloc0 = SafeAllocatedBytes();
+                    int ticks = count >= 16000 ? 60 : 90;
+                    var samples = new double[ticks];
+                    var sw = new System.Diagnostics.Stopwatch();
+                    for (int i = 0; i < ticks; i++)
+                    {
+                        sw.Restart();
+                        sim.Tick(1f / 30f);
+                        sw.Stop();
+                        samples[i] = sw.Elapsed.TotalMilliseconds;
+                    }
+                    long alloc = SafeAllocatedBytes() - alloc0;
+                    Array.Sort(samples);
+                    double mean = 0;
+                    for (int i = 0; i < samples.Length; i++) mean += samples[i];
+                    mean /= samples.Length;
+                    return new StressResult
+                    {
+                        Units = count,
+                        MeanMs = mean,
+                        P95Ms = Pct(samples, 95),
+                        MaxMs = samples[samples.Length - 1],
+                        AllocBytes = alloc
+                    };
+                }
+                finally
+                {
+                    sim.Dispose();
+                    spawns.Dispose();
+                }
+            }
         }
 
         private IEnumerator RunDeviceBenchmark(bool quitWhenDone)

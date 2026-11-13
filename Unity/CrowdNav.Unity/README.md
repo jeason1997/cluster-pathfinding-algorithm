@@ -27,6 +27,7 @@ Unity 6000.3.18f1 工程。两条可切换后端：
 | 应用参数/重烘 | 100/300/500/1000 人，0.5×–2.0× 单位大小，2–6 m/s 移动速度；同时重算净空/走格并重启仿真 |
 | 网格参数 | 运行时面板：跟随单位半径/烘焙半径、最大坡度、净空余量，点“应用并重烘” |
 | 可走区 开/关 | 手机 Game 视图用青色半透明覆盖显示当前 `Walkable` 区域 |
+| 极限测试 | 合成平地、不渲染单位，依次测 1k–32k 的 `Tick` 成本；结果写 `CROWD_STRESS` logcat |
 | FPS 不限/90/60/30 | 改渲染帧率上限；默认不限，按面板最高刷新率 |
 
 编辑器可视化：菜单 **`CrowdNav/Grid Viewer`** 在 Scene 视图叠加实际 `Walkable` 区域；可调半径/坡度/净空/镜像，点 **Bake / Refresh** 重烘，`Color by clearance` 显示净空热力，`Use scene unit size` 对齐当前 Demo。
@@ -34,6 +35,8 @@ Unity 6000.3.18f1 工程。两条可切换后端：
 单位颜色和 Web 版一致（`#4ea8ff` 移动、`#3ddc84` 到达、`#ff5c5c` 不可达、`#ffb547` 让路）。这是 GPU instancing 的 per-instance color，一个 draw call，不是按颜色拆多个 GameObject。
 
 HUD 的 `HEAP` 是托管堆总量，`GC0` 是启动以来第 0 代 GC 次数（已减去启动基线）；不是“每帧 GC 分配量”。仿真 tick 不分配托管内存（设备基准 `allocPerTick=0`、Jobs `heapDelta=0`），HUD/OnGUI 自己每 1 s 更新字符串会有少量托管分配，不在 tick 路径里。
+
+`极限测试` 不渲染单位，只测核心 tick：A16 上 10k 单位 60 Hz p95 14.8 ms，20k 单位 30 Hz p95 31.4 ms；所有档位 `allocBytes=0`。详见 [docs/Unity-Jobs-Burst优化.md](../../docs/Unity-Jobs-Burst优化.md) §13。
 
 地图默认做 **X 镜像**（`mirrorMapX = true`）：FBX 是 Y-up 右手系，Unity 导入会翻 X；JSON 烘焙保留了原始 FBX X，所以显示/高度场/可走格/出生点/目标点一起镜像，才能和 Unity 场景里的 FBX 对上。截图异常时可在 Inspector 关掉 `mirrorMapX` 再应用参数（或调 `CrowdMap.LoadFromText(..., mirrorX:false)`）。
 
