@@ -30,7 +30,7 @@ Unity 工程在 [`Unity/CrowdNav.Unity`](Unity/CrowdNav.Unity/README.md)，可�
 - 新核心：热状态全部 `NativeArray` SoA；空间哈希、ORCA 邻域/LP、顺序提交、路径、到达/整队都是 Burst Job；1000 人没有 `Agent` 托管对象。
 - 30 Hz 逻辑 + 客户端插值（`PrevPosition → Position`），可切 60 Hz；渲染是一个 1000 实例的 `DrawMeshInstanced`，不是 1000 个 GameObject。
 - 单位颜色和 Web 版一致（蓝=移动、绿=到达、红=不可达、黄=让路），GPU instancing per-instance color，一个 draw call。
-- 参数面板支持数量 100–1000、单位大小 0.5×–2.0×、移动速度 2–6 m/s、播放 x1/x2/x4、FPS 目标 不限/90/60/30；改完点“应用参数”重建。
+- 参数面板支持数量 100–1000、单位大小 0.5×–2.0×、移动速度 2–6 m/s、播放 x1/x2/x4、FPS 目标 不限/90/60/30；改完点“应用参数/重烘”重建。
 - 地图默认做 X 镜像，和 Unity 导入 FBX 的左右方向一致；可在 Inspector 关掉 `mirrorMapX`。
 - 安卓构建脚本直接出 IL2CPP/ARM64 APK；设备自动基准会把 `CROWD_BENCH` 写进 logcat。
 - 详细设计、GC 说明、行为边界见 [docs/Unity-Jobs-Burst优化.md](docs/Unity-Jobs-Burst优化.md)；多层导航的 NavMesh/Recast 评估见 [docs/NavMesh-Recast评估.md](docs/NavMesh-Recast评估.md)。
@@ -222,6 +222,7 @@ Unity 6 工程在 [`Unity/CrowdNav.Unity`](Unity/CrowdNav.Unity/README.md)，已
 - **旧核心** `Assets/CrowdNav.Legacy`：原 `src/CrowdNav` 原样保留，用于同场景基线对照（设备 30 Hz p95 7.77 ms）。
 - **交互 Demo**：轻点地面下达目标；单指/左键拖动旋转；双指/中键拖动平移；捏合/滚轮缩放；1x/2x/4x 播放倍速；默认 1000 人、Jobs 30 Hz、x4；单位按状态着色（蓝=移动/绿=到达/红=不可达/黄=让路）。
 - **参数面板**：数量 100–1000、大小 0.5×–2.0×、速度 2–6 m/s、FPS 目标 不限/90/60/30；应用时重建净空/出生队形/车位/仿真。
+- **可走区/网格参数**：手机界面可开关青色可走区覆盖；`网格参数` 面板可调烘焙半径、最大坡度、净空余量，点“应用并重烘”生效（约 22–35 ms，重烘会重置人群）。
 - **HUD**：`HEAP` 是托管堆总量、`GC0` 是启动以来第 0 代 GC 次数（已减基线），不是每帧分配量；仿真 tick 零托管分配（设备 `allocPerTick=0`、Jobs `heapDelta=0`），HUD/OnGUI 每 1 s 的字符串更新不计入 tick。
 - **Web 与 Unity 不共用同一份源码**：Web 用 `src/CrowdNav` 的 OOP 核心；Unity 新核心是 `Assets/CrowdNav.Core`，`Assets/CrowdNav.Legacy` 只是旧核心快照。改一边不会自动改另一边；旧核心可用 `tools/sync_legacy_unity.ps1` 单向同步。
 - **设备基准**：APK 内按钮依次跑 Legacy/Jobs × 30/60 Hz，输出 `CROWD_BENCH` 到 logcat 和 `crowd_bench.json`；A16 默认不限帧、HUD 90 FPS，FPS 按钮可切不限/90/60/30。

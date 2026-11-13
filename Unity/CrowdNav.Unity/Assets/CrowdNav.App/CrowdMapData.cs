@@ -47,7 +47,7 @@ namespace CrowdNav.Unity
         /// demo matches the FBX as seen in a Unity scene.
         /// </summary>
         public static CrowdMap LoadFromText(string text, float agentRadius = 0.35f,
-            bool mirrorX = true)
+            bool mirrorX = true, float maxSlopeDegrees = 42f, float clearanceMargin = 0.04f)
         {
             var json = JsonUtility.FromJson<CrowdMapJson>(text);
             if (json == null || json.heights == null || json.walkable == null)
@@ -69,7 +69,7 @@ namespace CrowdNav.Unity
             map.HeightMap = new HeightMap(json.width, json.height, json.cell, json.originX, json.originZ, mask);
             for (int i = 0; i < json.heights.Length; i++)
                 map.HeightMap.SetHeight(i % json.width, i / json.width, json.heights[i]);
-            map.Grid = new NavGrid(map.HeightMap, Array.Empty<CircleObstacle>(), agentRadius, 42f, 0.04f);
+            map.Grid = new NavGrid(map.HeightMap, Array.Empty<CircleObstacle>(), agentRadius, maxSlopeDegrees, clearanceMargin);
             return map;
         }
 

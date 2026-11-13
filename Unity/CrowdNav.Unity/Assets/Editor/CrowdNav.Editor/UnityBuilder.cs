@@ -77,8 +77,10 @@ namespace CrowdNav.Unity.EditorTools
             Directory.CreateDirectory("Assets/CrowdNav.App/Materials");
             string unitPath = "Assets/CrowdNav.App/Materials/Unit.mat";
             string groundPath = "Assets/CrowdNav.App/Materials/Ground.mat";
+            string gridPath = "Assets/CrowdNav.App/Materials/GridOverlay.mat";
             AssetDatabase.DeleteAsset(unitPath);
             AssetDatabase.DeleteAsset(groundPath);
+            AssetDatabase.DeleteAsset(gridPath);
             var standard = Shader.Find("Standard");
             var unitShader = Shader.Find("CrowdNav/UnitInstanced");
             if (unitShader == null) throw new InvalidOperationException("CrowdNav/UnitInstanced shader not found");
@@ -89,9 +91,15 @@ namespace CrowdNav.Unity.EditorTools
             var ground = new Material(standard) { color = new Color(0.34f, 0.36f, 0.38f) };
             ground.SetFloat("_Glossiness", 0.05f);
             AssetDatabase.CreateAsset(ground, groundPath);
+            var overlayShader = Shader.Find("CrowdNav/GridOverlay");
+            if (overlayShader == null) throw new InvalidOperationException("CrowdNav/GridOverlay shader not found");
+            var gridOverlay = new Material(overlayShader);
+            gridOverlay.SetColor("_Color", Color.white);
+            AssetDatabase.CreateAsset(gridOverlay, gridPath);
             AssetDatabase.SaveAssets();
             demo.unitMaterial = AssetDatabase.LoadAssetAtPath<Material>(unitPath);
             demo.groundMaterial = AssetDatabase.LoadAssetAtPath<Material>(groundPath);
+            demo.walkableMaterial = AssetDatabase.LoadAssetAtPath<Material>(gridPath);
             if (demo.mapAsset == null) throw new InvalidOperationException("Map asset missing: " + MapPath);
             EditorSceneManager.SaveScene(scene, ScenePath);
             AssetDatabase.Refresh();

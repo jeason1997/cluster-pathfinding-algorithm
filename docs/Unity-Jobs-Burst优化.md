@@ -434,7 +434,22 @@ corridor 最小可通过宽度 ≈ 2 * agentRadius + 2 * clearanceMargin + cellS
 
 ---
 
-### 12.5 在编辑器里看实际可走区域 / 动态重烘
+### 12.5 在编辑器/手机里看实际可走区域 / 动态重烘
+
+**手机运行时**（不需要连 Editor）：
+
+- 参数行新增 **`可走区 开/关`**：打开后用**青色半透明覆盖**画在地表之上，显示当前 `CrowdGridData.Grid.Walkable`；关掉恢复干净画面。
+- 新增 **`网格参数`** 面板：`跟随单位半径`、`烘焙半径`、`最大坡度`、`净空余量`；改完点 **`应用并重烘`**。
+- 覆盖 mesh 在重烘后自动重建；颜色是青色（和单位的蓝/绿/红/黄状态色区分开）。
+- 半径和坡度/净空直接传给 `CrowdMap.LoadFromText` + `CrowdGridData.Build`，不是另画一份近似区域。
+
+![手机可走区覆盖](assets/unity_device_walkable.png)
+
+![手机网格参数面板](assets/unity_device_grid_panel.png)
+
+![半径 0.70m 重烘后：523/1000 能放进出生区](assets/unity_device_rebake.png)
+
+Unity Editor 也有同源工具：
 
 Unity 菜单 **`CrowdNav/Grid Viewer`** 打开一个 EditorWindow：
 

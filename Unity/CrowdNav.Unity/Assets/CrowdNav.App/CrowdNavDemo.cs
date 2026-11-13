@@ -29,6 +29,7 @@ namespace CrowdNav.Unity
         public bool autoStart = true;
         public Material unitMaterial;
         public Material groundMaterial;
+        public Material walkableMaterial;
         public bool mirrorMapX = true;
 
         [Header("Playback")]
@@ -38,6 +39,14 @@ namespace CrowdNav.Unity
         [Header("Crowd parameters")]
         [Range(0.5f, 2f)] public float unitSize = 1f;
         [Range(1f, 6f)] public float moveSpeed = 3.1f;
+
+        [Header("Grid debug / rebake")]
+        public bool showWalkable;
+        public bool showGridPanel;
+        public bool followUnitRadius = true;
+        public float bakeRadius = 0.35f;
+        public float maxSlope = 42f;
+        public float clearanceMargin = 0.04f;
         private float _agentRadius = 0.35f;
         private float _slotSpacing = 0.8f;
         private float _renderScale = 1f;
@@ -47,12 +56,18 @@ namespace CrowdNav.Unity
         private string _labelSpeed = "";
         private string _labelFps = "";
         private string _labelPlay = "";
+        private string _labelWalkable = "";
         private int _gc0Start;
 
         private CrowdMap _map;
         private CrowdSimulation _legacy;
         private CrowdNavSimulation _jobs;
         private CrowdGridData _gridData;
+        private GameObject _walkableGo;
+        private Mesh _walkableMesh;
+        private MeshRenderer _walkableRenderer;
+        private Material _walkableMaterialInstance;
+        private float EffectiveBakeRadius => followUnitRadius ? _agentRadius : Mathf.Max(0.05f, bakeRadius);
         private List<Vec2> _spawnList;
         private NativeArray<float2> _jobSpawns;
         private SimMode _mode;
@@ -131,7 +146,8 @@ namespace CrowdNav.Unity
             try
             {
                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                _map = CrowdMap.LoadFromText(mapAsset.text, _agentRadius, mirrorMapX);
+                _map = CrowdMap.LoadFromText(mapAsset.text, EffectiveBakeRadius, mirrorMapX,
+                    maxSlope, clearanceMargin);
                 sw.Stop();
                 _gridMs = sw.Elapsed.TotalMilliseconds;
                 BuildVisuals();
@@ -153,6 +169,93 @@ namespace CrowdNav.Unity
 #if CROWD_AUTOBENCH
             StartCoroutine(RunDeviceBenchmark(true));
 #endif
+        }
+
+        private void RefreshWalkableOverlay()
+        {
+            if (!showWalkable || _mode != SimMode.Jobs || _gridData == null)
+            {
+                if (_walkableGo != null) _walkableGo.SetActive(false);
+                return;
+            }
+            BuildWalkableOverlay(_gridData.Grid);
+        }
+
+        private void ToggleWalkable()
+        {
+            showWalkable = !showWalkable;
+            RefreshUiLabels();
+            RefreshWalkableOverlay();
+            _status = showWalkable
+                ? (_mode == SimMode.Jobs ? "可走区：开（青色覆盖；青色格子=按当前半径可走）" : "可走区：仅 Jobs 模式显示")
+                : "可走区：关";
+        }
+
+        private void BuildWalkableOverlay(CrowdGrid grid)
+        {
+            if (_walkableMaterialInstance == null) return;
+
+            if (_walkableGo == null)
+            {
+                _walkableGo = new GameObject("WalkableOverlay");
+                _walkableGo.AddComponent<MeshFilter>();
+                _walkableRenderer = _walkableGo.AddComponent<MeshRenderer>();
+                _walkableRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                _walkableRenderer.receiveShadows = false;
+            }
+            if (_walkableMesh != null)
+            {
+                Destroy(_walkableMesh);
+                _walkableMesh = null;
+            }
+
+            int estimated = 0;
+            for (int i = 0; i < grid.CellCount; i++) if (grid.Walkable[i] != 0) estimated++;
+            if (estimated == 0)
+            {
+                _walkableGo.SetActive(false);
+                return;
+            }
+
+            var vertices = new List<Vector3>(estimated * 4);
+            var colors = new List<Color>(estimated * 4);
+            var triangles = new List<int>(estimated * 6);
+            float cell = grid.CellSize;
+            Color color = new Color(0.10f, 0.95f, 1.0f, 0.28f);
+
+            for (int z = 0; z < grid.Height; z++)
+            {
+                for (int x = 0; x < grid.Width; x++)
+                {
+                    int i = z * grid.Width + x;
+                    if (grid.Walkable[i] == 0) continue;
+
+                    float y = grid.Heights[i] + 0.06f;
+                    float x0 = grid.OriginX + x * cell;
+                    float z0 = grid.OriginZ + z * cell;
+                    float x1 = x0 + cell;
+                    float z1 = z0 + cell;
+                    int v = vertices.Count;
+                    vertices.Add(new Vector3(x0, y, z0));
+                    vertices.Add(new Vector3(x1, y, z0));
+                    vertices.Add(new Vector3(x1, y, z1));
+                    vertices.Add(new Vector3(x0, y, z1));
+                    colors.Add(color); colors.Add(color); colors.Add(color); colors.Add(color);
+                    triangles.Add(v); triangles.Add(v + 2); triangles.Add(v + 1);
+                    triangles.Add(v); triangles.Add(v + 3); triangles.Add(v + 2);
+                }
+            }
+
+            var mesh = new Mesh { name = "WalkableOverlay" };
+            if (vertices.Count > 65000) mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+            mesh.SetVertices(vertices);
+            mesh.SetColors(colors);
+            mesh.SetTriangles(triangles, 0, true);
+            mesh.RecalculateBounds();
+            _walkableMesh = mesh;
+            _walkableGo.GetComponent<MeshFilter>().sharedMesh = mesh;
+            _walkableRenderer.sharedMaterial = _walkableMaterialInstance;
+            _walkableGo.SetActive(true);
         }
 
         private void BuildSpawns()
@@ -228,11 +331,12 @@ namespace CrowdNav.Unity
                 config.NeighborDistance = 2.0f;
                 _gridData = CrowdGridData.Build(_map.Json.heights, ToBool(_map.Json.walkable),
                     _map.Json.width, _map.Json.height, _map.Json.cell, _map.Json.originX,
-                    _map.Json.originZ, _agentRadius, 42f, 0.04f);
+                    _map.Json.originZ, EffectiveBakeRadius, maxSlope, clearanceMargin);
                 _jobs = new CrowdNavSimulation(_gridData, config, _jobSpawns,
                     new float2(_map.SuggestedGoal.X, _map.SuggestedGoal.Z), false);
             }
             _started = true;
+            RefreshWalkableOverlay();
         }
 
         private void SetGoalNow()
@@ -268,7 +372,7 @@ namespace CrowdNav.Unity
         private bool IsGuiTop(Vector2 screenPoint)
         {
             float guiY = Screen.height - screenPoint.y;
-            return guiY < 470f || guiY > Screen.height - 70f; // HUD/controls/legend
+            return guiY < (showGridPanel ? 720f : 470f) || guiY > Screen.height - 70f; // HUD/controls/panel/legend
         }
 
         private void HandlePointer()
@@ -603,8 +707,12 @@ namespace CrowdNav.Unity
             if (GUI.Button(new Rect(576, y2, 260, 70), _labelSpeed)) CycleSpeed();
             if (GUI.Button(new Rect(852, y2, 300, 70), "应用参数/重烘")) ApplyParameters();
             if (GUI.Button(new Rect(1170, y2, 260, 70), _labelFps)) CycleTargetFps();
+            if (GUI.Button(new Rect(1450, y2, 260, 70), "网格参数")) showGridPanel = !showGridPanel;
+            if (GUI.Button(new Rect(1720, y2, 260, 70), _labelWalkable)) ToggleWalkable();
 
-            GUI.Label(new Rect(24, 360, 2200, 50), _status, GUI.skin.label);
+            if (showGridPanel) DrawGridPanel();
+
+            GUI.Label(new Rect(24, 360, 1400, 50), _status, GUI.skin.label);
             GUI.Label(new Rect(24, 405, 2200, 60),
                 "拖动=旋转  双指/中键=平移  捏合/滚轮=缩放  轻点地面=目标  播放倍速只加 tick 频率",
                 GUI.skin.label);
@@ -614,6 +722,42 @@ namespace CrowdNav.Unity
             DrawLegend(new Rect(240, ly, 210, 40), "● 到达", StateColors[1]);
             DrawLegend(new Rect(456, ly, 210, 40), "● 不可达", StateColors[2]);
             DrawLegend(new Rect(672, ly, 210, 40), "● 让路", StateColors[3]);
+        }
+
+        private void DrawGridPanel()
+        {
+            var r = new Rect(1160, 360, 1120, 350);
+            GUI.Box(r, "网格参数（改完点应用并重烘）");
+            float x = r.x + 24f;
+            float y = r.y + 48f;
+
+            followUnitRadius = GUI.Toggle(new Rect(x, y, 360, 40), followUnitRadius, "跟随单位半径（推荐）");
+            y += 52f;
+
+            float radius = followUnitRadius ? _agentRadius : bakeRadius;
+            GUI.Label(new Rect(x, y, 230, 40), string.Format(CultureInfo.InvariantCulture,
+                "烘焙半径 {0:0.00} m", radius));
+            bool oldEnabled = GUI.enabled;
+            GUI.enabled = !followUnitRadius;
+            float newRadius = GUI.HorizontalSlider(new Rect(x + 250, y + 12, 430, 30), radius, 0.10f, 1.0f);
+            GUI.enabled = oldEnabled;
+            if (!followUnitRadius) bakeRadius = newRadius;
+            y += 50f;
+
+            GUI.Label(new Rect(x, y, 230, 40), string.Format(CultureInfo.InvariantCulture,
+                "最大坡度 {0:0}°", maxSlope));
+            maxSlope = GUI.HorizontalSlider(new Rect(x + 250, y + 12, 430, 30), maxSlope, 5f, 60f);
+            y += 50f;
+
+            GUI.Label(new Rect(x, y, 230, 40), string.Format(CultureInfo.InvariantCulture,
+                "净空余量 {0:0.00} m", clearanceMargin));
+            clearanceMargin = GUI.HorizontalSlider(new Rect(x + 250, y + 12, 430, 30), clearanceMargin, 0f, 0.3f);
+            y += 56f;
+
+            if (GUI.Button(new Rect(x, y, 280, 56), "应用并重烘")) ApplyParameters();
+            if (GUI.Button(new Rect(x + 300, y, 180, 56), "关闭")) showGridPanel = false;
+            GUI.Label(new Rect(x + 500, y + 4, 540, 50),
+                "青色覆盖 = 当前走格；重烘会重置人群到出生区", GUI.skin.label);
         }
 
         private void DrawLegend(Rect rect, string text, Color color)
@@ -631,6 +775,7 @@ namespace CrowdNav.Unity
             _labelSpeed = "速度 " + moveSpeed.ToString("0.0");
             _labelFps = "FPS " + (targetFps <= 0 ? "不限" : targetFps.ToString());
             _labelPlay = "播放 x" + _simSpeed;
+            _labelWalkable = "可走区 " + (showWalkable ? "开" : "关");
         }
 
         private static int MaxRefreshRate()
@@ -689,17 +834,20 @@ namespace CrowdNav.Unity
                 unitSize = Mathf.Clamp(unitSize, 0.5f, 2f);
                 moveSpeed = Mathf.Clamp(moveSpeed, 1f, 6f);
                 _agentRadius = 0.35f * unitSize;
+                if (followUnitRadius) bakeRadius = _agentRadius;
                 _slotSpacing = Mathf.Max(0.45f, 2f * _agentRadius + 0.10f);
                 _renderScale = _agentRadius / 0.35f;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                _map = CrowdMap.LoadFromText(mapAsset.text, _agentRadius, mirrorMapX);
+                _map = CrowdMap.LoadFromText(mapAsset.text, EffectiveBakeRadius, mirrorMapX,
+                    maxSlope, clearanceMargin);
                 BuildSpawns();
                 Restart(_mode, _hz);
                 sw.Stop();
                 SetGoalAt(_map.SuggestedGoal.X, _map.SuggestedGoal.Z);
                 _status = string.Format(CultureInfo.InvariantCulture,
-                    "已应用：{0} 人，大小 x{1:0.0}（半径 {2:0.00} m），速度 {3:0.0} m/s，镜像X={4}，重烘 {5:0} ms",
-                    _count, unitSize, _agentRadius, moveSpeed, mirrorMapX, sw.Elapsed.TotalMilliseconds);
+                    "已应用：{0} 人，大小 x{1:0.0}，烘焙半径 {2:0.00} m，坡度 {3:0}°，净空 {4:0.00} m，速度 {5:0.0} m/s，重烘 {6:0} ms",
+                    _count, unitSize, EffectiveBakeRadius, maxSlope, clearanceMargin, moveSpeed,
+                    sw.Elapsed.TotalMilliseconds);
                 if (_count < unitCount) _status += "（出生区只放下 " + _count + "/" + unitCount + "）";
                 RefreshUiLabels();
                 Debug.Log("CROWD PARAMS " + _status);
@@ -875,6 +1023,14 @@ namespace CrowdNav.Unity
             _unitMaterial.SetFloat("_Glossiness", 0.15f);
             _unitMaterial.enableInstancing = true;
 
+            Shader overlayShader = Shader.Find("CrowdNav/GridOverlay");
+            if (overlayShader == null) overlayShader = Shader.Find("Sprites/Default");
+            if (overlayShader == null) overlayShader = Shader.Find("Hidden/Internal-Colored");
+            _walkableMaterialInstance = walkableMaterial != null
+                ? new Material(walkableMaterial)
+                : new Material(overlayShader);
+            _walkableMaterialInstance.color = Color.white;
+
             var marker = new GameObject("GoalMarker");
             marker.AddComponent<MeshFilter>().sharedMesh = _unitMesh;
             marker.transform.localScale = new Vector3(1.4f, 0.35f, 1.4f);
@@ -920,6 +1076,9 @@ namespace CrowdNav.Unity
             if (_jobs != null) { _jobs.Dispose(); _jobs = null; }
             if (_gridData != null) { _gridData.Dispose(); _gridData = null; }
             if (_jobSpawns.IsCreated) _jobSpawns.Dispose();
+            if (_walkableGo != null) Destroy(_walkableGo);
+            if (_walkableMesh != null) Destroy(_walkableMesh);
+            if (_walkableMaterialInstance != null) Destroy(_walkableMaterialInstance);
         }
 
         private static bool[] ToBool(int[] values)
