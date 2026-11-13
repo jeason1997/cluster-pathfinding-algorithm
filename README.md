@@ -199,7 +199,7 @@ Unity/CrowdNav.Unity/        Unity 6 工程（Assets/ProjectSettings/Packages）
   Assets/Tests/              Unity EditMode 测试（重叠/确定性/零分配）
 docs/                        方案设计、测试报告、Unity 接入、Jobs/Burst 优化、NavMesh 评估
 out/                         测试报告、关键帧、3D 图、GIF、实时测试截图、设备截图
-tools/                       可视化、报告、WebSocket/CDP 测试、FBX→高度场、Unity 构建脚本
+tools/                       可视化、报告、FBX→高度场、Unity 构建脚本；Web 探针归档在 tools/web/
 run-interactive.cmd          启动实时点击 Demo
 ```
 
@@ -218,11 +218,12 @@ run-interactive.cmd          启动实时点击 Demo
 
 Unity 6 工程在 [`Unity/CrowdNav.Unity`](Unity/CrowdNav.Unity/README.md)，已经实际编译并在 Samsung SM-A166P 上跑过 IL2CPP/ARM64：
 
-- **新核心** `Assets/CrowdNav.Core`：热状态全部 `NativeArray`，空间哈希、ORCA、提交、路径、到达/整队都是 Burst Job；1000 人 30 Hz 单帧 p95 设备 1.65 ms、Editor 1.96 ms。
-- **旧核心** `Assets/CrowdNav.Legacy`：原 `src/CrowdNav` 原样保留，用于同场景基线对照（设备 30 Hz p95 7.78 ms）。
-- **交互 Demo**：轻点地面下达目标；单指/左键拖动旋转；双指/中键拖动平移；捏合/滚轮缩放；1x/2x/4x 播放倍速；默认 1000 人、Jobs 30 Hz、x4。
-- **设备基准**：APK 内按钮依次跑 Legacy/Jobs × 30/60 Hz，输出 `CROWD_BENCH` 到 logcat 和 `crowd_bench.json`。
-- 旧 `Unity/CrowdRunner.cs` 仍作为“只拷贝旧核心”的最小接入示例保留；新的推荐接入见 [`docs/Unity接入指南.md`](docs/Unity接入指南.md) 的 A 节。
+- **新核心** `Assets/CrowdNav.Core`：热状态全部 `NativeArray`，空间哈希、ORCA、提交、路径、到达/整队都是 Burst Job；1000 人 30 Hz 单帧 p95 设备 1.62 ms、Editor 1.96 ms（干净一轮 1.18 ms）。
+- **旧核心** `Assets/CrowdNav.Legacy`：原 `src/CrowdNav` 原样保留，用于同场景基线对照（设备 30 Hz p95 7.77 ms）。
+- **交互 Demo**：轻点地面下达目标；单指/左键拖动旋转；双指/中键拖动平移；捏合/滚轮缩放；1x/2x/4x 播放倍速；默认 1000 人、Jobs 30 Hz、x4；单位按状态着色（蓝=移动/绿=到达/红=不可达/黄=让路）。
+- **参数面板**：数量 100–1000、大小 0.5×–2.0×、速度 2–6 m/s、FPS 目标 60/90/30；应用时重建净空/出生队形/车位/仿真。
+- **设备基准**：APK 内按钮依次跑 Legacy/Jobs × 30/60 Hz，输出 `CROWD_BENCH` 到 logcat 和 `crowd_bench.json`；A16 上 HUD 稳定 60 FPS（Android JNI 切 60 Hz 面板模式，避免 60 被 90 Hz vsync 量化成 45）。
+- 旧的独立 `Unity/CrowdRunner.cs` 已删除；完整工程和旧核心适配都在 `Unity/CrowdNav.Unity` 里。
 
 性能数字、GC 说明、行为边界见 [`docs/Unity-Jobs-Burst优化.md`](docs/Unity-Jobs-Burst优化.md)；多层 NavMesh/Recast 方案见 [`docs/NavMesh-Recast评估.md`](docs/NavMesh-Recast评估.md)。
 

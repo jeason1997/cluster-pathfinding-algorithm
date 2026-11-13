@@ -3,24 +3,20 @@
 **/__pycache__/
 *.user
 .vs/
+
+# Web prototype temporary output
 out/*.log
 out/*.csv
 out/interactive-server/
 out/chrome-*/
 out/chrome_cdp.pid
 
-# Unity batch logs
-out/unity/*.log
-out/unity/*.txt
-out/unity/*.json
+# Unity batch logs / device benchmark scratch (docs assets are in docs/assets)
+out/unity/
+
+# Unity generated directories (also covered by Unity/CrowdNav.Unity/.gitignore)
 Unity/CrowdNav.Unity/Library/
 Unity/CrowdNav.Unity/Temp/
 Unity/CrowdNav.Unity/Logs/
 Unity/CrowdNav.Unity/Builds/
-
-out/unity/*.apk
-out/unity/*.png
-
-out/unity/*.xml
-out/unity/*.apk
-out/unity/*.png
+Unity/CrowdNav.Unity/UserSettings/

@@ -51,6 +51,17 @@
     <div class="card"><b>实时交互</b>点击下达目标，支持 120/300/460/1000 单位、2D/3D、缩放/平移/跟随。</div>
   </div>
 
+  <h2>Unity 1000 人 Jobs/Burst 核心</h2>
+  <p class="lead">同一套集群逻辑已经移植到 Unity 6：SoA NativeArray + Burst 空间哈希/ORCA/顺序提交，1000 人在 Samsung A16 上 60 FPS，点击目标 <1 ms。工程、真机数据和接入说明都在仓库的 <code>Unity/CrowdNav.Unity</code>。</p>
+  <figure>
+    <img src="assets/unity_device_jobs30.png" alt="Unity 1000 人 Jobs/Burst 真机 60 FPS">
+    <figcaption>Galaxy A16，1000 人，Jobs 30 Hz 逻辑 + 60 FPS 渲染；蓝=移动、绿=到达。</figcaption>
+  </figure>
+  <div class="actions">
+    <a class="button" href="https://github.com/jeason1997/cluster-pathfinding-algorithm/blob/main/docs/Unity-Jobs-Burst%E4%BC%98%E5%8C%96.md">Unity 性能报告</a>
+    <a class="button ghost" href="https://github.com/jeason1997/cluster-pathfinding-algorithm/tree/main/Unity/CrowdNav.Unity">Unity 工程</a>
+  </div>
+
   <h2>效果截图</h2>
   <figure>
     <img src="assets/neicheng_3d.png" alt="导入 FBX 地图 3D 视角">

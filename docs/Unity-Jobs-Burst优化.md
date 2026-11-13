@@ -274,12 +274,13 @@ Samsung A16 的面板原生 90 Hz，`Application.targetFrameRate=60` + 90 Hz vsy
 
 | 模式 | HUD FPS | 画面内 SIM mean / p95 | 紧循环 SIM mean / p95 |
 |---|---:|---:|---:|
-| Legacy 30 | 60（60 Hz mode） | 13.27 / 17.66 ms（旧 45 FPS 采样） | 7.39 / 7.77 ms |
 | Jobs 30 | **60** | 3.23 / 4.01 ms | 1.53 / 1.62 ms |
-| Jobs 60 | **60** | 2.07 / 3.16 ms | 1.51 / 1.60 ms |
+| Jobs 60 | **60** | 2.06 / 3.11 ms | 1.51 / 1.60 ms |
+
+> Legacy 只用于同场景基线：默认 x4 播放时 1000 人会在渲染线程里排队（HUD 只有个位数 FPS），所以不在 60 FPS 表里比较；它的 tick 成本看上面的 7.39/7.77 ms 紧循环数字。
 
 - 1000 人时 Jobs 仿真只占 3–4 ms，60 Hz 预算 16.7 ms 里还剩 ~12 ms 给渲染/UI/网络。
-- 本阶段没有为了刷帧率换 Unlit/LOD/降分辨率；单位用的是 **GPU instancing + per-instance color** 的极简 unlit shader（同时解决状态颜色），地形仍是 Standard。
+- 单位用的是 **GPU instancing + per-instance color** 的极简 unlit shader：主要为了状态颜色和一个 draw call；没有为了刷帧率降分辨率或加 LOD，地形仍是 Standard。
 - 画面内 SIM 比紧循环高：tick 和 GPU 渲染交替运行时缓存局部性更差，这是真实游戏帧里的数字，比紧循环更保守；两者都远低于 33.3/16.7 ms 预算。
 - 播放 x4 是“每真实秒推进 4 倍仿真时间”，单 tick 仍是 1/30 或 1/60；设备基准固定按 1x 测 tick，不受倍速影响。
 

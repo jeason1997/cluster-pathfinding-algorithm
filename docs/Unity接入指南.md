@@ -104,8 +104,9 @@ adb shell monkey -p com.crowdnav.demo -c android.intent.category.LAUNCHER 1
 adb logcat -d -s Unity:I
 ```
 
-- PlayerSettings 由构建脚本设置：IL2CPP、ARM64、Release、Low stripping、OpenGLES3、横屏、60 fps target、vSync off。
+- PlayerSettings 由构建脚本设置：IL2CPP、ARM64、Release、Low stripping、OpenGLES3、横屏、60 fps target、vSync off；工程启用 `com.unity.modules.androidjni`，用于把 90 Hz 面板切到 60 Hz 显示模式。
 - 设备基准会写 `CROWD_BENCH ...` 到 logcat，并写 `.../files/crowd_bench.json`。
+- A16 上 60 帧目标在 90 Hz vsync 下会变成 45；`CrowdNavDemo` 启动时在 UI 线程设置 `preferredDisplayModeId=2` 后 HUD 稳定 60。其他机型没有该 mode 时会保留原刷新率（日志 `CROWD DISPLAY`）。
 - 手机长时间跑 1000 人基线注意热降频；先跑 60 s 再采稳态。
 
 ---
@@ -114,7 +115,7 @@ adb logcat -d -s Unity:I
 
 核心库 `src/CrowdNav` 不引用 `UnityEngine`，目标框架是 `netstandard2.1`，可以直接把 `.cs` 文件拷入 Unity 工程。下面是推荐接入方式。
 
-> 注意：`Unity/CrowdRunner.cs` 是样板，未在 Unity 工程里编译；不同 Unity 版本的 API 可能需要微调。仿真核心已经在本仓库的 .NET 测试中验证。
+> 注意：旧 OOP 核心已经原样放在 `Unity/CrowdNav.Unity/Assets/CrowdNav.Legacy`，完整的 Unity 工程、场景、Android 构建脚本都在 `Unity/CrowdNav.Unity`；下面的 `src/CrowdNav` 接入步骤仅用于理解旧核心/维护 .NET 原型，新项目请直接用 A 节的新 Jobs 核心。
 
 ---
 
@@ -122,8 +123,7 @@ adb logcat -d -s Unity:I
 
 ```
 Assets/
-  CrowdNav/                 <- src/CrowdNav/*.cs
-  CrowdRunner.cs            <- Unity/CrowdRunner.cs
+  CrowdNav/                 <- src/CrowdNav/*.cs（旧核心）
   Prefabs/Agent.prefab
 ```
 
