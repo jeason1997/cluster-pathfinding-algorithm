@@ -104,9 +104,9 @@ adb shell monkey -p com.crowdnav.demo -c android.intent.category.LAUNCHER 1
 adb logcat -d -s Unity:I
 ```
 
-- PlayerSettings 由构建脚本设置：IL2CPP、ARM64、Release、Low stripping、OpenGLES3、横屏、60 fps target、vSync off；工程启用 `com.unity.modules.androidjni`，用于把 90 Hz 面板切到 60 Hz 显示模式。
+- PlayerSettings 由构建脚本设置：IL2CPP、ARM64、Release、Low stripping、OpenGLES3、横屏、不限帧 target、vSync off。
 - 设备基准会写 `CROWD_BENCH ...` 到 logcat，并写 `.../files/crowd_bench.json`。
-- A16 上 60 帧目标在 90 Hz vsync 下会变成 45；`CrowdNavDemo` 启动时在 UI 线程设置 `preferredDisplayModeId=2` 后 HUD 稳定 60。其他机型没有该 mode 时会保留原刷新率（日志 `CROWD DISPLAY`）。
+- 默认 `targetFps=0`（不限）：代码取屏幕刷新率作为 `Application.targetFrameRate`、vSync off，按最高刷新率跑（A16 是 90 Hz，HUD 90 FPS）；`FPS 不限/90/60/30` 可手动设上限。选 60 时 90 Hz 面板的 vsync 可能量化成 45，需要稳定 60 要另切面板 60 Hz 模式。
 - 手机长时间跑 1000 人基线注意热降频；先跑 60 s 再采稳态。
 
 ---

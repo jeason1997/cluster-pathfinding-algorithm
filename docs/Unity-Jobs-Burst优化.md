@@ -268,20 +268,20 @@ Unity EditMode 测试（`Assets/Tests/CrowdNav.Tests`）5/5 通过：
 - 设备没有 Editor 那么夸张（Editor 是 Mono，Legacy 28.7 ms；设备 IL2CPP 只要 7.4 ms），但 5× 的余量已经足够把 30 Hz 的预算留给渲染/网络/UI。
 - 设备 `allocPerTick=0.0`、Jobs `heapDelta=0`；Legacy 的 76–84 KB 是 300–600 tick 的累计堆增长（其中包含每 tick `Stopwatch.StartNew()` 等托管分配）。`GC.GetAllocatedBytesForCurrentThread()` 在设备上也报 0，不能单独作为证据，所以同时看 heap delta 和代码审计。
 
-### 9.1 帧率：现在稳定 60 FPS
+### 9.1 帧率：默认不限帧，A16 原生 90 FPS
 
-Samsung A16 的面板原生 90 Hz，`Application.targetFrameRate=60` + 90 Hz vsync 会把 60 量化成 **45**（`90/2`）。工程在 Android 启动后用 JNI 把 `WindowManager.LayoutParams.preferredDisplayModeId` 设为 60 Hz mode（mode 2），再保持 60 帧目标；HUD 稳定 **60 FPS**。设备仍保留 `FPS 60/90/30` 按钮；如果机型没有 60 Hz mode，mode 切换会失败并保留原刷新率。
+手机默认 **不限帧**：`targetFps=0` 时代码取 `Screen.currentResolution.refreshRateRatio` 的刷新率作为目标（A16 是 90），并关闭 vSync。HUD 实测 **90 FPS**；`FPS 不限/90/60/30` 按钮可手动设上限。选 60 时 90 Hz vsync 可能量化成 45；旧版用 JNI 强制 60 Hz 面板模式，现在默认不再降刷新率。
 
 | 模式 | HUD FPS | 画面内 SIM mean / p95 | 紧循环 SIM mean / p95 |
 |---|---:|---:|---:|
-| Jobs 30 | **60** | 3.23 / 4.01 ms | 1.53 / 1.62 ms |
-| Jobs 60 | **60** | 2.06 / 3.11 ms | 1.51 / 1.60 ms |
+| Jobs 30 | **90** | 3.07 / 3.50 ms | 1.53 / 1.62 ms |
+| Jobs 60 | **90** | 2.22 / 3.48 ms | 1.51 / 1.60 ms |
 
-> Legacy 只用于同场景基线：默认 x4 播放时 1000 人会在渲染线程里排队（HUD 只有个位数 FPS），所以不在 60 FPS 表里比较；它的 tick 成本看上面的 7.39/7.77 ms 紧循环数字。
+> Legacy 只用于同场景基线：默认 x4 播放时 1000 人会在渲染线程里排队（HUD 只有个位数 FPS），所以不在 90 FPS 表里比较；它的 tick 成本看上面的 7.39/7.77 ms 紧循环数字。
 
-- 1000 人时 Jobs 仿真只占 3–4 ms，60 Hz 预算 16.7 ms 里还剩 ~12 ms 给渲染/UI/网络。
+- 1000 人时 Jobs 仿真只占 2–4 ms，90 Hz 预算 11.1 ms 里还剩 ~7 ms 给渲染/UI/网络。
 - 单位用的是 **GPU instancing + per-instance color** 的极简 unlit shader：主要为了状态颜色和一个 draw call；没有为了刷帧率降分辨率或加 LOD，地形仍是 Standard。
-- 画面内 SIM 比紧循环高：tick 和 GPU 渲染交替运行时缓存局部性更差，这是真实游戏帧里的数字，比紧循环更保守；两者都远低于 33.3/16.7 ms 预算。
+- 画面内 SIM 比紧循环高：tick 和 GPU 渲染交替运行时缓存局部性更差，这是真实游戏帧里的数字，比紧循环更保守；两者都远低于 33.3/16.7/11.1 ms 预算。
 - 播放 x4 是“每真实秒推进 4 倍仿真时间”，单 tick 仍是 1/30 或 1/60；设备基准固定按 1x 测 tick，不受倍速影响。
 
 设备截图：
@@ -361,7 +361,80 @@ adb logcat -d -s Unity:I
 
 ---
 
-## 12. 文件索引
+## 12. 常见问题
+
+### 12.1 默认帧率 / 不限速
+
+- 默认 `targetFps=0`（不限），代码把 `Screen.currentResolution.refreshRateRatio`（A16 为 90）写进 `Application.targetFrameRate`，`vSyncCount = 0`，所以 HUD 默认 **90 FPS**。
+- `FPS 不限/90/60/30` 按钮可手动设上限。选 60 时，90 Hz 面板的 vsync 可能把它量化成 45；要稳定 60 需要切到面板的 60 Hz 显示模式（旧版做过，现在默认不再强制降刷新率）。
+- tick 频率（30/60 Hz 逻辑）和渲染帧率是两件事；`播放 x4` 只增加逻辑 tick 频率，不改单 tick 成本。
+
+### 12.2 HUD 的 HEAP / GC0 是什么
+
+旧 HUD 把 `GC.GetTotalMemory(false)` 标成 “GC 5xxx KB”，容易误解：
+
+- 那是 **当前托管堆总量**（包括 Unity/IL2CPP 运行时、资源、字符串等），不是“每帧 GC 分配量”，也不是“GC 次数”。
+- 新 HUD 标成 `HEAP 5xxx KB  GC0 n`：`HEAP` 是当前托管堆总量，`GC0` 是**启动以来**第 0 代 GC 次数（已减去启动基线），正常稳态增长很慢。
+- 仿真 tick **不分配托管内存**：设备基准 `allocPerTick=0`、Jobs `heapDelta=0`；EditMode 测试 `Tick_DoesNotAllocateManagedMemory` 通过。
+- HUD/OnGUI 自己每 1 s 更新字符串、`RenderCrowd` 填矩阵/颜色数组，这些属于 UI/渲染层，不在 `CrowdNavSimulation.Tick` 里；HUD 的堆总量有几十 KB 波动、`GC0` 缓慢增长是正常的。
+- 真正的每帧分配风险点是：`Debug.Log`、LINQ、字符串拼接、`new List`、每帧 `GetComponent`/`Instantiate`；新核心 tick 里都没有。
+
+### 12.3 Web 和 Unity 是同一套核心吗？
+
+**不是同一份源码，是同一套算法/行为的两个实现：**
+
+| | Web 交互 Demo | Unity |
+|---|---|---|
+| 核心 | `src/CrowdNav`（OOP `List<Agent>`、A* + 共享流场） | `Assets/CrowdNav.Core`（SoA `NativeArray` + Burst Job） |
+| 旧核心 | 同 `src/CrowdNav` | `Assets/CrowdNav.Legacy` 是 `src/CrowdNav` 的快照，只用于基线对照 |
+| 修改是否互相生效 | 不会自动生效 | 不会自动生效 |
+
+- Web 仍跑 OOP 核心；Unity 的新 Jobs 核心是独立移植。两者共享 ORCA/车位/提交的语义，但类型、数据结构、运行环境不同。
+- `src/CrowdNav` 与 `Assets/CrowdNav.Legacy` 可以用单向同步脚本保持一致：
+  `powershell -File tools/sync_legacy_unity.ps1`；CI 可用 `-Check` 检查漂移。
+- 如果要把 Web 也切到 Jobs 核心，需要把 `NativeArray`/Burst 依赖替换成 .NET 版本或引入 Unity.Collections 的 .NET 构建；这不是浏览器 Demo 的目标。
+
+### 12.4 道路能不能过 / 宽度怎么定 / 能指定烘焙半径吗
+
+能过与否由 **单位半径 + 净空 + 格子分辨率** 共同决定，不是只看“道路看起来多宽”：
+
+```
+cell 可走条件：
+  clearance(cell) >= agentRadius + clearanceMargin + cellSize * 0.5
+corridor 最小可通过宽度 ≈ 2 * agentRadius + 2 * clearanceMargin + cellSize
+```
+
+- `clearance` 是每个格子到最近阻挡格的距离变换（米），在 `CrowdGridData.Build` 里算。
+- `IsSegmentWalkable` 会沿线段做“半径扫掠”（圆心到阻挡格矩形的距离 < `agentRadius + margin` 即失败），所以窄缝即使中心线可走，单位也过不去。
+- 坡度/台阶由 `maxSlopeDegrees` 和 `TanMaxSlope` 再筛一遍。
+
+举例（`cell = 0.8 m`、`margin = 0.04 m`）：
+
+| unitSize | agentRadius | 单格要求净空 | 理论最小通道宽 |
+|---:|---:|---:|---:|
+| 0.5× | 0.175 m | 0.615 m | ~1.23 m |
+| 1.0× | 0.35 m | 0.79 m | ~1.58 m |
+| 1.5× | 0.525 m | 0.965 m | ~1.93 m |
+| 2.0× | 0.70 m | 1.14 m | ~2.28 m |
+
+实际还会被格子量化、坡度、出生/目标位置影响，所以“理论能过”不代表每个窄口都能顺畅排队通过。
+
+**烘焙半径**：
+
+- `CrowdGridData.Build(heights, mask, ..., agentRadius, maxSlopeDegrees, clearanceMargin)` 直接接受 `agentRadius`；Demo 用 `agentRadius = 0.35 * unitSize`。
+- 所以改“大小 x0.5–x2.0”会重建 `NavGrid` 净空、出生队形、车位和 `CrowdGridData`；道路通过性随之变化。运行一次约 25–35 ms（41,595 格）。
+- `fbx_to_map.py` 只把 FBX 三角面光栅化成 **0.8 m 高度场 + walkable 掩码**，它本身不接收单位半径；半径/净空是 Unity 运行时 `CrowdGridData.Build` 做的。因此严格说不是“带半径烘焙 NavMesh”，而是“固定分辨率高度场 + 运行时按半径算净空”。
+
+**和 Unity NavMesh 的区别**：
+
+- Unity NavMesh 的 `NavMeshBuildSettings.agentRadius` 是 **Bake 参数**，半径直接参与体素化/侵蚀，生成多边形 NavMesh；改半径需要重新 Bake（或用多个 Agent Type/多份 NavMesh 数据）。
+- 本项目是单层高度场：Bake 只生成高度/阻挡掩码，半径在运行时用距离变换算净空，所以换半径便宜（~30 ms），但只支持单层，且格子量化误差比多边形 NavMesh 大。
+- Unity NavMesh 也可以烘焙“能走多宽”：`agentRadius` 决定可走区域被侵蚀多少；`agentHeight/stepHeight/slope` 决定台阶和坡度；Off-Mesh Link 决定跳跃/梯子。它更适合多层/桥洞，但不能像本项目这样每帧改半径、共享流场直接跑 1000 人。
+- 多层地图的路线见 [`NavMesh-Recast评估.md`](NavMesh-Recast评估.md)：离线 Bake NavMesh → 三角形图流场 → 保留 ORCA/提交层。
+
+---
+
+## 13. 文件索引
 
 | 文件 | 作用 |
 |---|---|

@@ -33,7 +33,7 @@ namespace CrowdNav.Unity
 
         [Header("Playback")]
         [Range(1, 4)] public int playbackSpeed = 4;
-        public int targetFps = 60;
+        public int targetFps = 0; // 0 = unlimited / platform max
 
         [Header("Crowd parameters")]
         [Range(0.5f, 2f)] public float unitSize = 1f;
@@ -42,6 +42,12 @@ namespace CrowdNav.Unity
         private float _slotSpacing = 0.8f;
         private float _renderScale = 1f;
         private string _status = "";
+        private string _labelCount = "";
+        private string _labelSize = "";
+        private string _labelSpeed = "";
+        private string _labelFps = "";
+        private string _labelPlay = "";
+        private int _gc0Start;
 
         private CrowdMap _map;
         private CrowdSimulation _legacy;
@@ -107,11 +113,9 @@ namespace CrowdNav.Unity
         {
             Screen.sleepTimeout = SleepTimeout.NeverSleep;
             Screen.orientation = ScreenOrientation.LandscapeLeft;
-            Application.targetFrameRate = Mathf.Clamp(targetFps, 30, 90);
+            Application.targetFrameRate = targetFps <= 0 ? MaxRefreshRate() : targetFps;
             QualitySettings.vSyncCount = 0;
-#if UNITY_ANDROID && !UNITY_EDITOR
-            StartCoroutine(ApplyAndroidRefreshRate());
-#endif
+            _gc0Start = GC.CollectionCount(0);
             _simSpeed = Mathf.Clamp(playbackSpeed, 1, 4);
             _agentRadius = 0.35f * Mathf.Clamp(unitSize, 0.5f, 2f);
             _slotSpacing = Mathf.Max(0.45f, 2f * _agentRadius + 0.10f);
@@ -135,6 +139,7 @@ namespace CrowdNav.Unity
                 Restart(SimMode.Jobs, targetHz);
                 _started = true;
                 if (autoStart) SetGoalNow();
+                RefreshUiLabels();
                 Debug.Log(string.Format(CultureInfo.InvariantCulture,
                     "CROWD DEMO ready units={0} gridMs={1:0.0} spawnMs={2:0.0} goalMs={3:0.0}",
                     _count, _gridMs, _spawnMs, _goalMs));
@@ -149,63 +154,6 @@ namespace CrowdNav.Unity
             StartCoroutine(RunDeviceBenchmark(true));
 #endif
         }
-
-        private IEnumerator ApplyAndroidRefreshRate()
-        {
-            // On a 90 Hz panel, a 60 fps target with vsync often quantizes to 45 fps
-            // (present every second vsync). Explicitly ask for the panel's 60 Hz mode.
-            yield return null;
-            int w = Screen.width;
-            int h = Screen.height;
-            Screen.SetResolution(w, h, true, 60);
-#if UNITY_ANDROID && !UNITY_EDITOR
-            TrySet60HzDisplayMode();
-#endif
-            yield return null;
-            Debug.Log(string.Format(CultureInfo.InvariantCulture,
-                "CROWD DISPLAY {0}x{1} refresh={2:0.0} target=60", Screen.width, Screen.height,
-                Screen.currentResolution.refreshRateRatio.value));
-        }
-
-#if UNITY_ANDROID && !UNITY_EDITOR
-        private void TrySet60HzDisplayMode()
-        {
-            try
-            {
-                using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
-                using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
-                {
-                    // Unity's main thread is not the Android UI thread; Window/view changes
-                    // must be posted to the UI thread or ViewRootImpl throws CalledFromWrongThread.
-                    activity.Call("runOnUiThread", new AndroidJavaRunnable(() =>
-                    {
-                        try
-                        {
-                            using (var p = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
-                            using (var a = p.GetStatic<AndroidJavaObject>("currentActivity"))
-                            using (var window = a.Call<AndroidJavaObject>("getWindow"))
-                            using (var attrs = window.Call<AndroidJavaObject>("getAttributes"))
-                            {
-                                // This panel exposes 90 Hz (mode 1) and 60 Hz (mode 2).
-                                attrs.Set("preferredDisplayModeId", 2);
-                                window.Call("setAttributes", attrs);
-
-                            }
-                            Debug.Log("CROWD DISPLAY requested mode 2 / 60Hz on UI thread");
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.LogWarning("CROWD DISPLAY mode switch (UI thread) failed: " + ex.Message);
-                        }
-                    }));
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning("CROWD DISPLAY mode switch failed: " + ex.Message);
-            }
-        }
-#endif
 
         private void BuildSpawns()
         {
@@ -540,7 +488,7 @@ namespace CrowdNav.Unity
             _alpha = Mathf.Clamp01(_accumulator / dt);
 
             _hudTimer += Time.unscaledDeltaTime;
-            if (_hudTimer >= 0.25f)
+            if (_hudTimer >= 1f)
             {
                 _hudTimer = 0f;
                 UpdateHud();
@@ -578,9 +526,10 @@ namespace CrowdNav.Unity
             _hud = string.Format(CultureInfo.InvariantCulture,
                 "FPS {0:0.0}   {1} {2}Hz   SIM mean {3:0.00} ms  p95 {4:0.00} ms   play x{5}\n" +
                 "units {6}   arrived {7}   tick {8}   goal {9:0.0} ms   target ({10:0.0},{11:0.0})\n" +
-                "grid {12:0.0} ms   spawn {13:0.0} ms   GC {14:0} KB   tap floor = new goal",
+                "grid {12:0.0} ms   spawn {13:0.0} ms   HEAP {14:0} KB   GC0 {15}   tap floor = new goal",
                 _fps, _mode, _hz, _meanMs, _p95Ms, _simSpeed, _count, arrived, _tick, _goalMs,
-                _goalXz.x, _goalXz.y, _gridMs, _spawnMs, GC.GetTotalMemory(false) / 1024);
+                _goalXz.x, _goalXz.y, _gridMs, _spawnMs, GC.GetTotalMemory(false) / 1024,
+                GC.CollectionCount(0) - _gc0Start);
         }
 
         private void RenderCrowd(float alpha)
@@ -641,16 +590,19 @@ namespace CrowdNav.Unity
             if (GUI.Button(new Rect(1048, y, 240, 80), "去目标")) SetGoalNow();
             if (GUI.Button(new Rect(1304, y, 300, 80), "设备基准"))
                 StartCoroutine(RunDeviceBenchmark(false));
-            if (GUI.Button(new Rect(1620, y, 260, 80), "播放 x" + _simSpeed))
+            if (GUI.Button(new Rect(1620, y, 260, 80), _labelPlay))
+            {
                 _simSpeed = _simSpeed >= 4 ? 1 : _simSpeed * 2;
+                RefreshUiLabels();
+            }
             if (GUI.Button(new Rect(1900, y, 300, 80), "重置视角")) ResetView();
 
             float y2 = 280;
-            if (GUI.Button(new Rect(24, y2, 260, 70), "数量 " + unitCount)) CycleCount();
-            if (GUI.Button(new Rect(300, y2, 260, 70), "大小 x" + unitSize.ToString("0.0"))) CycleSize();
-            if (GUI.Button(new Rect(576, y2, 260, 70), "速度 " + moveSpeed.ToString("0.0"))) CycleSpeed();
+            if (GUI.Button(new Rect(24, y2, 260, 70), _labelCount)) CycleCount();
+            if (GUI.Button(new Rect(300, y2, 260, 70), _labelSize)) CycleSize();
+            if (GUI.Button(new Rect(576, y2, 260, 70), _labelSpeed)) CycleSpeed();
             if (GUI.Button(new Rect(852, y2, 300, 70), "应用参数")) ApplyParameters();
-            if (GUI.Button(new Rect(1170, y2, 260, 70), "FPS " + targetFps)) CycleTargetFps();
+            if (GUI.Button(new Rect(1170, y2, 260, 70), _labelFps)) CycleTargetFps();
 
             GUI.Label(new Rect(24, 360, 2200, 50), _status, GUI.skin.label);
             GUI.Label(new Rect(24, 405, 2200, 60),
@@ -658,18 +610,34 @@ namespace CrowdNav.Unity
                 GUI.skin.label);
 
             float ly = Screen.height - 48f;
-            DrawLegend(new Rect(24, ly, 210, 40), "移动", StateColors[0]);
-            DrawLegend(new Rect(240, ly, 210, 40), "到达", StateColors[1]);
-            DrawLegend(new Rect(456, ly, 210, 40), "不可达", StateColors[2]);
-            DrawLegend(new Rect(672, ly, 210, 40), "让路", StateColors[3]);
+            DrawLegend(new Rect(24, ly, 210, 40), "● 移动", StateColors[0]);
+            DrawLegend(new Rect(240, ly, 210, 40), "● 到达", StateColors[1]);
+            DrawLegend(new Rect(456, ly, 210, 40), "● 不可达", StateColors[2]);
+            DrawLegend(new Rect(672, ly, 210, 40), "● 让路", StateColors[3]);
         }
 
         private void DrawLegend(Rect rect, string text, Color color)
         {
             Color old = GUI.color;
             GUI.color = color;
-            GUI.Label(rect, "● " + text, GUI.skin.label);
+            GUI.Label(rect, text, GUI.skin.label);
             GUI.color = old;
+        }
+
+        private void RefreshUiLabels()
+        {
+            _labelCount = "数量 " + unitCount;
+            _labelSize = "大小 x" + unitSize.ToString("0.0");
+            _labelSpeed = "速度 " + moveSpeed.ToString("0.0");
+            _labelFps = "FPS " + (targetFps <= 0 ? "不限" : targetFps.ToString());
+            _labelPlay = "播放 x" + _simSpeed;
+        }
+
+        private static int MaxRefreshRate()
+        {
+            float hz = (float)Screen.currentResolution.refreshRateRatio.value;
+            int value = Mathf.RoundToInt(hz);
+            return value >= 30 ? value : 60;
         }
 
         private void CycleCount()
@@ -678,6 +646,7 @@ namespace CrowdNav.Unity
             int idx = Array.IndexOf(values, Mathf.Clamp(unitCount, 10, 1000));
             unitCount = values[idx < 0 ? 3 : (idx + 1) % values.Length];
             _status = "数量待应用：" + unitCount + "（点“应用参数”）";
+            RefreshUiLabels();
         }
 
         private void CycleSize()
@@ -686,6 +655,7 @@ namespace CrowdNav.Unity
             int idx = Array.FindIndex(values, v => Mathf.Abs(v - unitSize) < 0.01f);
             unitSize = values[idx < 0 ? 1 : (idx + 1) % values.Length];
             _status = "大小待应用：x" + unitSize.ToString("0.0") + "（点“应用参数”）";
+            RefreshUiLabels();
         }
 
         private void CycleSpeed()
@@ -694,17 +664,21 @@ namespace CrowdNav.Unity
             int idx = Array.FindIndex(values, v => Mathf.Abs(v - moveSpeed) < 0.01f);
             moveSpeed = values[idx < 0 ? 1 : (idx + 1) % values.Length];
             _status = "速度待应用：" + moveSpeed.ToString("0.0") + " m/s（点“应用参数”）";
+            RefreshUiLabels();
         }
 
         private void CycleTargetFps()
         {
-            int[] values = { 60, 90, 30 };
+            int[] values = { 0, 90, 60, 30 };
             int idx = Array.IndexOf(values, targetFps);
             targetFps = values[idx < 0 ? 0 : (idx + 1) % values.Length];
-            Application.targetFrameRate = targetFps;
+            Application.targetFrameRate = targetFps <= 0 ? MaxRefreshRate() : targetFps;
             QualitySettings.vSyncCount = 0;
-            _status = "帧率目标：" + targetFps + "（设备 90 Hz 面板，60 可能被 vsync 量化成 45）";
-            Debug.Log("CROWD FPS target=" + targetFps);
+            _status = targetFps <= 0
+                ? "帧率目标：不限（按屏幕最高刷新率）"
+                : "帧率目标：" + targetFps + "（90 Hz 面板上 60 可能被 vsync 量化成 45）";
+            Debug.Log("CROWD FPS target=" + (targetFps <= 0 ? "unlimited(" + MaxRefreshRate() + ")" : targetFps.ToString()));
+            RefreshUiLabels();
         }
 
         private void ApplyParameters()
@@ -725,6 +699,7 @@ namespace CrowdNav.Unity
                     "已应用：{0} 人，大小 x{1:0.0}（半径 {2:0.00} m），速度 {3:0.0} m/s，镜像X={4}",
                     _count, unitSize, _agentRadius, moveSpeed, mirrorMapX);
                 if (_count < unitCount) _status += "（出生区只放下 " + _count + "/" + unitCount + "）";
+                RefreshUiLabels();
                 Debug.Log("CROWD PARAMS " + _status);
             }
             catch (Exception ex)

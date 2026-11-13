@@ -8,6 +8,7 @@
 | `run_unity_device_bench.ps1` | 构建 `CROWD_AUTOBENCH` APK、安装、等跑完、拉 logcat/JSON |
 | `install_unity_android.ps1` | 安装并启动已构建的 APK |
 | `use_unity_offline_burst.ps1` | 本机 Burst 包下载卡住时，把 manifest 临时指向 Unity 缓存；`-Restore` 恢复 |
+| `sync_legacy_unity.ps1` | 把 `src/CrowdNav` 单向同步到 `Assets/CrowdNav.Legacy`；`-Check` 只检查漂移（CI 可用） |
 
 ## 地图 / 可视化
 

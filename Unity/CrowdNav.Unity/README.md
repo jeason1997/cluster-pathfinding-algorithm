@@ -25,12 +25,15 @@ Unity 6000.3.18f1 工程。两条可切换后端：
 | 重置视角 | 回到整张地图的初始机位 |
 | 数量 / 大小 / 速度 | 分别循环预设；改完点“应用参数”重建网格、车位和仿真 |
 | 应用参数 | 100/300/500/1000 人，0.5×–2.0× 单位大小，2–6 m/s 移动速度 |
+| FPS 不限/90/60/30 | 改渲染帧率上限；默认不限，按面板最高刷新率 |
 
 单位颜色和 Web 版一致（`#4ea8ff` 移动、`#3ddc84` 到达、`#ff5c5c` 不可达、`#ffb547` 让路）。这是 GPU instancing 的 per-instance color，一个 draw call，不是按颜色拆多个 GameObject。
 
+HUD 的 `HEAP` 是托管堆总量，`GC0` 是启动以来第 0 代 GC 次数（已减去启动基线）；不是“每帧 GC 分配量”。仿真 tick 不分配托管内存（设备基准 `allocPerTick=0`、Jobs `heapDelta=0`），HUD/OnGUI 自己每 1 s 更新字符串会有少量托管分配，不在 tick 路径里。
+
 地图默认做 **X 镜像**（`mirrorMapX = true`）：FBX 是 Y-up 右手系，Unity 导入会翻 X；JSON 烘焙保留了原始 FBX X，所以显示/高度场/可走格/出生点/目标点一起镜像，才能和 Unity 场景里的 FBX 对上。截图异常时可在 Inspector 关掉 `mirrorMapX` 再应用参数（或调 `CrowdMap.LoadFromText(..., mirrorX:false)`）。
 
-手机默认请求 60 Hz 显示模式 + `Application.targetFrameRate=60`。Samsung A16 的面板支持 90 Hz（mode 1）和 60 Hz（mode 2）；如果只设 60 帧目标，90 Hz vsync 会把 60 量化成 45。工程在 Android 上用 JNI 把 `WindowManager.LayoutParams.preferredDisplayModeId = 2`（60 Hz）设到 UI 线程，HUD 稳定 60 FPS；如果机型没有 mode 2，会保留原刷新率。HUD/按钮里的 `FPS 60/90/30` 可改目标帧率，`CROWD DISPLAY ...` 日志会打印实际刷新率。
+手机默认 **不限帧**：`targetFps=0`，代码取 `Screen.currentResolution` 的刷新率作为目标并关闭 vSync，按面板最高刷新率跑。Samsung A16 是 90 Hz 面板，HUD 默认 90 FPS；HUD 里的 `FPS 不限/90/60/30` 可手动设上限。选 60 时，90 Hz vsync 可能量化成 45；需要稳定 60 可以再切面板 60 Hz 模式（旧版 JNI 方案已移除，默认优先最高帧率）。`CROWD FPS target=...` 日志会打印当前目标。
 
 触屏/鼠标操作（和 Web 版一致）：
 
@@ -80,7 +83,7 @@ adb logcat -d -s Unity:I
 
 - IL2CPP、ARM64、Release、Low stripping、.NET Standard 2.1；
 - OpenGLES3（低端机兼容性优先）；
-- 横屏、60 fps target、vSync off、`Screen.sleepTimeout = NeverSleep`；
+- 横屏、不限帧 target、vSync off、`Screen.sleepTimeout = NeverSleep`；
 - 包名 `com.crowdnav.demo`，min API 26。
 
 自动基准 APK 会在 1.5 s 后依次跑 4 个配置（Legacy/Jobs × 30/60 Hz，每个 warm-up 30 tick 后测 300/600 tick），输出：
