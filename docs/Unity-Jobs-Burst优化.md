@@ -173,7 +173,7 @@ RenderCrowd(_alpha);       // 用 PrevPosition -> Position 插值
 - **播放倍速**：`播放 x1/x2/x4` 只把“每真实秒推进的仿真时间”乘以倍率（`accumulator += dt * speed`），单 tick 的 `dt` 仍是 1/30 或 1/60；默认 x4 让 1000 人的高密度队列看起来更快，切回 x1 就是基准口径。设备基准不受倍速影响。
 - **触屏/鼠标**：轻点地面设目标；单指/左键拖动旋转；双指/中键拖动平移；双指捏合/滚轮缩放。相机是围绕地图中心的 orbit rig，和 Web 版操作一致。触摸和鼠标的旋转/平移**符号分开实现**：触摸按“手指推动场景”的方向，鼠标保持桌面 orbit 的常规方向。
 - **状态颜色**：和 Web 版同一组色值——`#4ea8ff` 移动、`#3ddc84` 到达、`#ff5c5c` 不可达、`#ffb547` 让路。用 `CrowdNav/UnitInstanced` 的 per-instance `_Color` + `MaterialPropertyBlock.SetVectorArray`，1000 人一个 draw call。
-- **参数面板**：数量 100/300/500/1000、大小 0.5×–2.0×、速度 2–6 m/s；应用时重建 `NavGrid` 净空、出生队形、车位、`CrowdGridData` 和仿真。单位太大导致出生区放不下时按实际数量启动并提示（例如 989/1000）。
+- **参数面板**：数量 10–20000（滑动条，默认 1000）、大小 0.10×–2.0×、速度 1–6 m/s；应用时重建 `NavGrid` 净空、出生队形、车位、`CrowdGridData` 和仿真。单位太大/太小导致出生区放不下时按实际数量启动并提示；20k 原地图高密度实测见 §13。
 - **FBX 左右镜像**：FBX 是 Y-up 右手系，Unity 导入会翻 X；JSON 烘焙保留了原始 FBX X。`CrowdMap.LoadFromText(..., mirrorX:true)` 会把高度场、可走格、出生/目标、显示网格和三角形绕序一起镜像，避免“单位在镜像地形上走”的错位。Inspector 的 `mirrorMapX` 可关掉对照。
 
 ---
@@ -290,9 +290,9 @@ Unity EditMode 测试（`Assets/Tests/CrowdNav.Tests`）5/5 通过：
 
 ![设备 Jobs 60](assets/unity_device_jobs60.png)
 
-![参数：100 人 / 1.5× / 4.5 m/s](assets/unity_device_params.png)
+![当前滑动条布局](assets/unity_device_sliders.png)
 
-> 参数行和 Web 版对应：数量 100/300/500/1000、大小 0.5×–2.0×、速度 2–6 m/s；“应用参数”会重建网格净空、出生队形、车位和仿真。单位太大导致出生区放不下时，会按实际能放下的数量启动并在状态行提示（例如 989/1000）。
+> 参数行现在是数量/大小/速度滑动条：数量 10–20000（启动默认 1000）、大小 0.10×–2.0×、速度 1–6 m/s；“应用参数/重烘”会重建网格净空、出生队形、车位和仿真。单位太大导致出生区放不下时，会按实际能放下的数量启动并在状态行提示。
 
 
 
@@ -368,6 +368,8 @@ adb logcat -d -s Unity:I
 - 默认 `targetFps=0`（不限），代码把 `Screen.currentResolution.refreshRateRatio`（A16 为 90）写进 `Application.targetFrameRate`，`vSyncCount = 0`，所以 HUD 默认 **90 FPS**。
 - `FPS 不限/90/60/30` 按钮可手动设上限。选 60 时，90 Hz 面板的 vsync 可能把它量化成 45；要稳定 60 需要切到面板的 60 Hz 显示模式（旧版做过，现在默认不再强制降刷新率）。
 - tick 频率（30/60 Hz 逻辑）和渲染帧率是两件事；`播放 x4` 只增加逻辑 tick 频率，不改单 tick 成本。
+- 顶部四个按钮是 **后端 × 逻辑 tick**：`Legacy 30`、`Legacy 60`、`Jobs 30`、`Jobs 60`。30/60 **不是 FPS**，是每秒跑多少次 `Tick`；60 Hz 的 CPU 工作量是 30 Hz 的两倍，x4 时变成 120/240 tick/s。大数量优先 `Jobs 30`，要画面帧率用 `FPS 不限/90/60/30`。
+- 启动默认是 **1000 人、大小 1.0×、Jobs 30**；20k 只有手动拖滑动条并点“应用参数/重烘”才生效。Android 从后台恢复不会重新执行 `Start`，如果测试时停在 20k，从最近任务划掉/强制停止再开即回 1000。
 
 ### 12.2 HUD 的 HEAP / GC0 是什么
 
