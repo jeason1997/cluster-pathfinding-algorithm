@@ -236,6 +236,8 @@
 
   let ws = null, connected = false, world = null;
   let state = null, prev = null, receivedAt = 0;
+  let snapshotMs = 34;
+  let stateRevision = 0, colorRevision = -1;
   let goal = null, slots = [], goalRadius = 0;
   let suggestedGoal = null;
   let trails = [];
@@ -559,6 +561,7 @@
     unitsMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(1000 * 3), 3);
     unitsMesh.count = 0;
     unitsMesh.frustumCulled = false;
+    colorRevision = -1;
     scene.add(unitsMesh);
 
     unitShadows = new THREE.InstancedMesh(
@@ -610,8 +613,10 @@
 
   function updateUnits() {
     if (!unitsMesh || !state || !state.agents) return;
-    const alpha = prev ? clamp((performance.now() - receivedAt) / 34, 0, 1) : 1;
+    const alpha = prev ? clamp((performance.now() - receivedAt) / snapshotMs, 0, 1) : 1;
     const n = Math.min(state.agents.length, 1000);
+    const shadowN = n <= 600 ? n : 0;
+    const recolor = colorRevision !== stateRevision;
     for (let i = 0; i < n; i++) {
       const p = unitPosition(i, alpha);
       if (!p) continue;
@@ -621,19 +626,26 @@
       dummyUnit.updateMatrix();
       unitsMesh.setMatrixAt(i, dummyUnit.matrix);
 
-      dummyUnit.position.set(p.x, p.y + 0.035, p.z);
-      dummyUnit.rotation.set(-Math.PI / 2, 0, 0);
-      dummyUnit.scale.set(unitVisualScale, unitVisualScale, unitVisualScale);
-      dummyUnit.updateMatrix();
-      unitShadows.setMatrixAt(i, dummyUnit.matrix);
+      if (i < shadowN) {
+        dummyUnit.position.set(p.x, p.y + 0.035, p.z);
+        dummyUnit.rotation.set(-Math.PI / 2, 0, 0);
+        dummyUnit.scale.set(unitVisualScale, unitVisualScale, unitVisualScale);
+        dummyUnit.updateMatrix();
+        unitShadows.setMatrixAt(i, dummyUnit.matrix);
+      }
 
-      colorScratch.setHex(COLORS[p.st] === undefined ? COLORS[2] : COLORS[p.st]);
-      unitsMesh.setColorAt(i, colorScratch);
+      if (recolor) {
+        colorScratch.setHex(COLORS[p.st] === undefined ? COLORS[2] : COLORS[p.st]);
+        unitsMesh.setColorAt(i, colorScratch);
+      }
     }
     unitsMesh.count = n;
     unitsMesh.instanceMatrix.needsUpdate = true;
-    if (unitsMesh.instanceColor) unitsMesh.instanceColor.needsUpdate = true;
-    unitShadows.count = n;
+    if (recolor) {
+      if (unitsMesh.instanceColor) unitsMesh.instanceColor.needsUpdate = true;
+      colorRevision = stateRevision;
+    }
+    unitShadows.count = shadowN;
     unitShadows.instanceMatrix.needsUpdate = true;
 
     if (selectedIndex >= 0 && selectedIndex < n) {
@@ -913,7 +925,7 @@
 
   function updateCamera(dt) {
     if (followSelected && state && selectedIndex >= 0 && selectedIndex < state.agents.length) {
-      const alpha = prev ? clamp((performance.now() - receivedAt) / 34, 0, 1) : 1;
+      const alpha = prev ? clamp((performance.now() - receivedAt) / snapshotMs, 0, 1) : 1;
       const p = unitPosition(selectedIndex, alpha);
       if (p) desiredTarget.set(p.x, p.y + 0.55, p.z);
     }
@@ -1222,12 +1234,16 @@
       }
     }
     receivedAt = performance.now();
+    snapshotMs = s.intervalMs || snapshotMs;
+    stateRevision++;
     if (!trails.length && s.agents) trails = s.agents.map(() => []);
     if (trails.length !== s.agents.length) trails = s.agents.map(() => []);
-    for (let i = 0; i < s.agents.length; i++) {
-      const a = s.agents[i];
-      trails[i].push([a[0], a[1]]);
-      if (trails[i].length > 24) trails[i].shift();
+    // Trails are only rendered for the selected unit. Pushing one point for every
+    // unit on every snapshot allocates thousands of arrays per second at 1000 units.
+    if (selectedIndex >= 0 && selectedIndex < trails.length && s.agents[selectedIndex]) {
+      const a = s.agents[selectedIndex];
+      trails[selectedIndex].push([a[0], a[1]]);
+      if (trails[selectedIndex].length > 24) trails[selectedIndex].shift();
     }
 
     $("tNow").textContent = s.t.toFixed(1);

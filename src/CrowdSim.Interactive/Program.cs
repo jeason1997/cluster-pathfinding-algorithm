@@ -91,7 +91,12 @@ public static class Program
                     while (await timer.WaitForNextTickAsync(cts.Token))
                     {
                         session.Step(session.Speed);
-                        if (++tick % 2 == 0)
+                        // Large crowds spend 20-30 ms per simulation step on a
+                        // desktop CPU; serializing and sending every 2nd tick
+                        // compounds the stutter. 20 Hz snapshots + client
+                        // interpolation is much cheaper than 30 Hz full state.
+                        int stateEvery = session.Count > 600 ? 3 : 2;
+                        if (++tick % stateEvery == 0)
                             await Send(session.BuildStateJson("state"));
                     }
                 }

@@ -21,8 +21,12 @@ public sealed class DemoSession
     private string _error = "";
     private float _minSepEver = float.MaxValue;
     private float _lastActiveStepMs = 0.3f;
+    private float _minSepCache;
+    private float _minSepCacheTime = float.NegativeInfinity;
 
     public int Speed { get; set; } = 1;
+
+    public int Count => _sim.Agents.Count;
 
     public Vec2 CurrentGoal
     {
@@ -116,6 +120,7 @@ public sealed class DemoSession
                 _count = count;
                 _error = "";
                 _minSepEver = float.MaxValue;
+                _minSepCacheTime = float.NegativeInfinity;
                 error = "";
                 return true;
             }
@@ -154,6 +159,7 @@ public sealed class DemoSession
                 _count = count;
                 _error = "";
                 _minSepEver = float.MaxValue;
+                _minSepCacheTime = float.NegativeInfinity;
                 error = "";
                 return true;
             }
@@ -184,6 +190,7 @@ public sealed class DemoSession
                 _count = count;
                 _error = "";
                 _minSepEver = float.MaxValue;
+                _minSepCacheTime = float.NegativeInfinity;
                 error = "";
                 return true;
             }
@@ -211,6 +218,7 @@ public sealed class DemoSession
             {
                 _sim.SetGoal(goal);
                 _minSepEver = float.MaxValue;
+                _minSepCacheTime = float.NegativeInfinity;
                 _error = "";
                 error = "";
                 return true;
@@ -245,25 +253,41 @@ public sealed class DemoSession
             CrowdSimulation sim = _sim;
             int n = sim.Agents.Count;
             int arrived = 0;
-            float minSep = float.MaxValue;
             for (int i = 0; i < n; i++)
             {
                 Agent a = sim.Agents[i];
                 if (a.State == AgentState.Arrived || a.State == AgentState.Yielding || a.ReturningToSlot)
                     arrived++;
-                for (int j = i + 1; j < n; j++)
-                {
-                    float d2 = Vec2.DistanceSq(sim.Agents[i].Position, sim.Agents[j].Position);
-                    if (d2 < minSep) minSep = d2;
-                }
             }
-            if (n <= 1) minSep = 0f;
-            else minSep = MathF.Sqrt(minSep);
+
+            // O(n^2) min-separation is only a HUD/telemetry value. At 1000 units
+            // recomputing it at 30 Hz dominates serialization; sample it at 2 Hz.
+            if (n <= 1)
+            {
+                _minSepCache = 0f;
+                _minSepCacheTime = sim.Time;
+            }
+            else if (sim.Time - _minSepCacheTime >= 0.5f)
+            {
+                float minD2 = float.MaxValue;
+                for (int i = 0; i < n; i++)
+                {
+                    Vec2 pi = sim.Agents[i].Position;
+                    for (int j = i + 1; j < n; j++)
+                    {
+                        float d2 = Vec2.DistanceSq(pi, sim.Agents[j].Position);
+                        if (d2 < minD2) minD2 = d2;
+                    }
+                }
+                _minSepCache = MathF.Sqrt(minD2);
+                _minSepCacheTime = sim.Time;
+            }
+            float minSep = _minSepCache;
             if (sim.HasActiveGoal && minSep < _minSepEver) _minSepEver = minSep;
             if (sim.HasActiveGoal && arrived < n && sim.LastStepMs > 0.02)
                 _lastActiveStepMs = (float)sim.LastStepMs;
 
-            var sb = new StringBuilder(4096);
+            var sb = new StringBuilder(n > 600 ? 4096 * 4 : 4096);
             sb.Append("{\"type\":\"");
             sb.Append(type);
             sb.Append("\",\"t\":").Append(F(sim.Time));
@@ -275,6 +299,7 @@ public sealed class DemoSession
             sb.Append(",\"reflows\":").Append(sim.ReflowCount);
             sb.Append(",\"stepMs\":").Append(F(_lastActiveStepMs));
             sb.Append(",\"pending\":").Append(sim.PendingPathPlans);
+            sb.Append(",\"intervalMs\":").Append(n > 600 ? 50 : 33);
             sb.Append(",\"finalized\":").Append(sim.GroupGoalFinalized ? "true" : "false");
             sb.Append(",\"hasGoal\":").Append(sim.HasActiveGoal ? "true" : "false");
             if (sim.HasActiveGoal)
